@@ -1,48 +1,30 @@
 # composer_tui
 
-# Goals
+A terminal-based tool for orchestrating multiple parallel AI coding agents, using git worktrees to isolate each agent's work.
 
-- Orchestrate multiple parallel AI coding agents.
-- Use disposable git worktrees as a workspace for each agent to isolate their work.
+Built with Rust and [ratatui](https://ratatui.rs/).
 
-# Requirements
+## For Agents
 
-- Written in Rust
-- Uses the `ratatui` TUI library
-- Has a gorgeous TUI interface
-- vim-like key bindings for navigating the TUI
+Before starting work, read these docs:
 
-# Appearance
+1. **[docs/DESIGN.md](docs/DESIGN.md)** - Architecture, data model, and UI layout
+2. **[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)** - Phased implementation with success criteria
 
-- sidebar with items for each active workspace (W1, W2, W3 are placeholders representing some workspaces)
-- the rest of the UI is the main content area, which is just a shell for now.
+If continuing from a previous phase, also read the relevant handoff doc in `.context/`.
 
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                                 composer_tui                                   │
-├──────────┬─────────────────────────────────────────────────────────────────────┤
-│┌────────┐│                                                                     │
-││   W1   ││                                                                     │
-│└────────┘│                                                                     │
-│┌────────┐│                                                                     │
-││   W2   ││                                                                     │
-│└────────┘│                                                                     │
-│┌────────┐│                     Main Content Area                               │
-││   W3   ││                   (interactive terminal / shell )                   │
-│└────────┘│                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-│          │                                                                     │
-└──────────┴─────────────────────────────────────────────────────────────────────┘
+## Development
+
+Commands run through direnv to ensure correct environment:
+
+```bash
+direnv exec . cargo build      # Build
+direnv exec . cargo run        # Run
+direnv exec . cargo test       # Test
+direnv exec . cargo clippy     # Lint
+direnv exec . cargo fmt        # Format
 ```
 
-# Development
+## Project Status
 
-- Use TDD and focus on high test coverage
-- Use a nix flake / nix devshell and direnv to isolate project dev environment from the system
-- Approach feature development iteratively, checking your work along the way. Do not "1-shot" features.
+See `docs/IMPLEMENTATION_PLAN.md` for current phase and progress.
