@@ -11,6 +11,7 @@ pub struct App {
     workspaces: Vec<Workspace>,
     selected_index: usize,
     should_quit: bool,
+    focus: FocusArea,
 }
 
 impl App {
@@ -21,6 +22,7 @@ impl App {
             workspaces,
             selected_index: 0,
             should_quit: false,
+            focus: FocusArea::Sidebar,
         }
     }
 
@@ -54,6 +56,31 @@ impl App {
         self.should_quit
     }
 
+    /// Currently focused area of the UI.
+    pub fn focus(&self) -> FocusArea {
+        self.focus
+    }
+
+    /// Move focus left (to the sidebar).
+    pub fn focus_left(&mut self) {
+        self.focus = FocusArea::Sidebar;
+    }
+
+    /// Move focus right (to the main panel).
+    pub fn focus_right(&mut self) {
+        self.focus = FocusArea::Main;
+    }
+
+    /// Move focus up (to the header).
+    pub fn focus_up(&mut self) {
+        self.focus = FocusArea::Header;
+    }
+
+    /// Move focus down (into the main body; defaults to main panel).
+    pub fn focus_down(&mut self) {
+        self.focus = FocusArea::Main;
+    }
+
     /// All configured workspaces.
     pub fn workspaces(&self) -> &[Workspace] {
         &self.workspaces
@@ -69,6 +96,14 @@ impl Default for App {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Logical UI regions that can receive focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusArea {
+    Header,
+    Sidebar,
+    Main,
 }
 
 fn default_workspaces() -> Vec<Workspace> {
@@ -126,5 +161,24 @@ mod tests {
         let mut app = App::new();
         app.quit();
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn initial_focus_is_sidebar() {
+        let app = App::new();
+        assert_eq!(app.focus(), FocusArea::Sidebar);
+    }
+
+    #[test]
+    fn focus_changes_follow_direction() {
+        let mut app = App::new();
+        app.focus_right();
+        assert_eq!(app.focus(), FocusArea::Main);
+        app.focus_up();
+        assert_eq!(app.focus(), FocusArea::Header);
+        app.focus_left();
+        assert_eq!(app.focus(), FocusArea::Sidebar);
+        app.focus_down();
+        assert_eq!(app.focus(), FocusArea::Main);
     }
 }

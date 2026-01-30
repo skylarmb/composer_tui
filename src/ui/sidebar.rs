@@ -4,7 +4,7 @@
 
 use ratatui::{
     layout::Rect,
-    style::Stylize,
+    style::{Color, Style, Stylize},
     text::Line,
     widgets::{Block, Borders, List, ListItem},
     Frame,
@@ -15,7 +15,7 @@ use crate::App;
 /// Render the sidebar with workspace list.
 ///
 /// Shows each workspace name, with the selected one highlighted.
-pub fn render(frame: &mut Frame, area: Rect, app: &App) {
+pub fn render(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     // Build list items from workspaces
     let items: Vec<ListItem> = app
         .workspaces()
@@ -32,7 +32,19 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
-    let list = List::new(items).block(Block::default().borders(Borders::ALL));
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style(focused)),
+    );
 
     frame.render_widget(list, area);
+}
+
+fn border_style(focused: bool) -> Style {
+    if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    }
 }

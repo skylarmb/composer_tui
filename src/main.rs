@@ -6,7 +6,7 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let app = App::new();
+    let mut app = App::new();
 
     loop {
         // Render the UI
@@ -38,11 +38,27 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         // Handle input events
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break,
-                    _ => {}
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    match key.code {
+                        KeyCode::Char('h') => app.focus_left(),
+                        KeyCode::Char('l') => app.focus_right(),
+                        KeyCode::Char('k') => app.focus_up(),
+                        KeyCode::Char('j') => app.focus_down(),
+                        _ => {}
+                    }
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => app.quit(),
+                        KeyCode::Char('j') | KeyCode::Down => app.select_next(),
+                        KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+                        _ => {}
+                    }
                 }
             }
+        }
+
+        if app.should_quit() {
+            break;
         }
     }
 

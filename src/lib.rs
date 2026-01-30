@@ -4,5 +4,5 @@ pub mod app;
 pub mod ui;
 pub mod workspace;
 
-pub use app::App;
+pub use app::{App, FocusArea};
 pub use workspace::Workspace;

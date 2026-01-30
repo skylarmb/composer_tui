@@ -11,7 +11,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::App;
+use crate::{App, FocusArea};
 
 /// Render the entire UI layout.
 ///
@@ -27,7 +27,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     .split(frame.area());
 
     // Render header
-    header::render(frame, chunks[0]);
+    let focus = app.focus();
+    header::render(frame, chunks[0], focus == FocusArea::Header);
 
     // Horizontal split: Sidebar | Main Panel
     let body_chunks = Layout::horizontal([
@@ -37,6 +38,6 @@ pub fn render(frame: &mut Frame, app: &App) {
     .split(chunks[1]);
 
     // Render sidebar and main panel
-    sidebar::render(frame, body_chunks[0], app);
-    main_panel::render(frame, body_chunks[1]);
+    sidebar::render(frame, body_chunks[0], app, focus == FocusArea::Sidebar);
+    main_panel::render(frame, body_chunks[1], focus == FocusArea::Main);
 }
