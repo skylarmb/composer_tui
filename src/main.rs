@@ -12,6 +12,8 @@ use crossterm::{
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
+use composer_tui::{ui, App};
+
 fn main() -> Result<(), Box<dyn Error>> {
     install_panic_hook();
 
@@ -27,10 +29,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    // Blank screen for now; future phases will render UI
-    terminal.clear()?;
+    let app = App::new();
 
     loop {
+        // Render the UI
+        terminal.draw(|frame| ui::render(frame, &app))?;
+
+        // Handle input events
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
