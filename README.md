@@ -13,6 +13,9 @@ Before starting work, read these docs:
 
 If continuing from a previous phase, also read the relevant handoff doc in `.context/`.
 
+Workflow guidance:
+- Commit and push your changes after each coherent set of edits (e.g., finishing a phase task or feature slice). This keeps parallel agents in sync and simplifies handoffs.
+
 ## Development
 
 Commands run through direnv to ensure correct environment:
