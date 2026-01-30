@@ -38,7 +38,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         // Handle input events
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                let focus_modifier = key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+
+                if focus_modifier {
                     match key.code {
                         KeyCode::Char('h') => app.focus_left(),
                         KeyCode::Char('l') => app.focus_right(),
