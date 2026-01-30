@@ -1,0 +1,15 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Cargo
+/.cargo/
+
+# Nix
+/result
+/nix/
+.direnv
+
+# Editor
+.DS_Store
+*.swp
