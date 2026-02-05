@@ -12,7 +12,7 @@ use crossterm::{
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
-use composer_tui::{ui, App};
+use composer_tui::{ui, App, Config};
 
 fn main() -> Result<(), Box<dyn Error>> {
     install_panic_hook();
@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    Config::load();
     let mut app = App::new();
 
     loop {
