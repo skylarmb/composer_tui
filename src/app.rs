@@ -3,7 +3,12 @@
 //! This module is UI-independent and is exercised via unit tests to ensure
 //! navigation logic works before wiring it into the TUI.
 
-use crate::workspace::Workspace;
+use std::io;
+
+use crate::{
+    state::{AppState, WorkspaceState},
+    workspace::Workspace,
+};
 
 /// Holds global application state.
 #[derive(Debug)]
@@ -15,12 +20,17 @@ pub struct App {
 }
 
 impl App {
-    /// Construct a new `App` with the default set of workspaces.
+    /// Construct a new `App`, loading persisted state if available.
     pub fn new() -> Self {
-        let workspaces = default_workspaces();
+        Self::from_state(AppState::load())
+    }
+
+    /// Construct an `App` from persisted state.
+    pub fn from_state(state: AppState) -> Self {
+        let workspaces = state.workspaces.into_iter().map(Workspace::from).collect();
         Self {
             workspaces,
-            selected_index: 0,
+            selected_index: state.selected_index,
             should_quit: false,
             focus: FocusArea::Sidebar,
         }
@@ -90,6 +100,20 @@ impl App {
     pub fn selected_index(&self) -> usize {
         self.selected_index
     }
+
+    /// Persist the current app state to disk.
+    pub fn save_state(&self) -> io::Result<()> {
+        self.to_state().save()
+    }
+
+    fn to_state(&self) -> AppState {
+        let workspaces = self
+            .workspaces
+            .iter()
+            .map(WorkspaceState::from)
+            .collect();
+        AppState::new(workspaces, self.selected_index)
+    }
 }
 
 impl Default for App {
@@ -106,21 +130,13 @@ pub enum FocusArea {
     Main,
 }
 
-fn default_workspaces() -> Vec<Workspace> {
-    vec![
-        Workspace::new("1", "W1"),
-        Workspace::new("2", "W2"),
-        Workspace::new("3", "W3"),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn initial_state_is_correct() {
-        let app = App::new();
+        let app = App::from_state(AppState::default());
         assert_eq!(app.workspaces().len(), 3);
         assert_eq!(app.selected_index(), 0);
         assert!(!app.should_quit());
@@ -128,14 +144,14 @@ mod tests {
 
     #[test]
     fn select_next_advances_selection() {
-        let mut app = App::new();
+        let mut app = App::from_state(AppState::default());
         app.select_next();
         assert_eq!(app.selected_index(), 1);
     }
 
     #[test]
     fn select_next_wraps_at_end() {
-        let mut app = App::new();
+        let mut app = App::from_state(AppState::default());
         app.selected_index = app.workspaces.len() - 1;
         app.select_next();
         assert_eq!(app.selected_index(), 0);
@@ -143,7 +159,7 @@ mod tests {
 
     #[test]
     fn select_previous_moves_up() {
-        let mut app = App::new();
+        let mut app = App::from_state(AppState::default());
         app.selected_index = 2;
         app.select_previous();
         assert_eq!(app.selected_index(), 1);
@@ -151,27 +167,27 @@ mod tests {
 
     #[test]
     fn select_previous_wraps_at_top() {
-        let mut app = App::new();
+        let mut app = App::from_state(AppState::default());
         app.select_previous();
         assert_eq!(app.selected_index(), app.workspaces().len() - 1);
     }
 
     #[test]
     fn quit_sets_flag() {
-        let mut app = App::new();
+        let mut app = App::from_state(AppState::default());
         app.quit();
         assert!(app.should_quit());
     }
 
     #[test]
     fn initial_focus_is_sidebar() {
-        let app = App::new();
+        let app = App::from_state(AppState::default());
         assert_eq!(app.focus(), FocusArea::Sidebar);
     }
 
     #[test]
     fn focus_changes_follow_direction() {
-        let mut app = App::new();
+        let mut app = App::from_state(AppState::default());
         app.focus_right();
         assert_eq!(app.focus(), FocusArea::Main);
         app.focus_up();

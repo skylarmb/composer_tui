@@ -63,6 +63,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         }
 
         if app.should_quit() {
+            if let Err(err) = app.save_state() {
+                eprintln!("Warning: failed to save state: {err}");
+            }
             break;
         }
     }
