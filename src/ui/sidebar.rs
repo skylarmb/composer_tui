@@ -15,7 +15,13 @@ use crate::App;
 /// Render the sidebar with workspace list.
 ///
 /// Shows each workspace name, with the selected one highlighted.
-pub fn render(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    focused: bool,
+    focused_border_color: Color,
+) {
     // Build list items from workspaces
     let items: Vec<ListItem> = app
         .workspaces()
@@ -39,15 +45,15 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(border_style(focused)),
+            .border_style(border_style(focused, focused_border_color)),
     );
 
     frame.render_widget(list, area);
 }
 
-fn border_style(focused: bool) -> Style {
+fn border_style(focused: bool, focused_color: Color) -> Style {
     if focused {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(focused_color)
     } else {
         Style::default()
     }

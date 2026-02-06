@@ -303,6 +303,7 @@ mod tests {
         init_repo(&repo_path);
         Config {
             worktree_base_dir: Some(base_dir.clone()),
+            ..Config::default()
         }
         .save()
         .expect("failed to save config");

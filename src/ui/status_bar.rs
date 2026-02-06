@@ -88,6 +88,10 @@ fn sidebar_hints() -> Line<'static> {
         desc_span(" delete  "),
         key_span("z"),
         desc_span(" fullscreen  "),
+        key_span("S"),
+        desc_span(" settings  "),
+        key_span("R"),
+        desc_span(" reload  "),
         key_span("q"),
         desc_span(" quit"),
     ])
@@ -147,5 +151,20 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
         assert!(text.contains("Shift+PgUp/PgDn"));
+    }
+
+    #[test]
+    fn sidebar_hints_include_settings_keys() {
+        let app = App::from_state_with_manager(AppState::default(), None);
+        let line = hint_line(&app);
+        let text = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert!(text.contains("S"));
+        assert!(text.contains("settings"));
+        assert!(text.contains("R"));
+        assert!(text.contains("reload"));
     }
 }

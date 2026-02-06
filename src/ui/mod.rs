@@ -19,9 +19,12 @@ use crate::{App, FocusArea, InputMode};
 ///
 /// Layout structure:
 /// - Vertical split: Header (3 rows) | Body | StatusBar (1 row)
-/// - Horizontal split of Body: Sidebar (12 cols) | MainPanel
+/// - Horizontal split of Body: Sidebar (configurable width) | MainPanel
 /// - When fullscreen: sidebar is hidden, main panel takes full body width
 pub fn render(frame: &mut Frame, app: &App) {
+    let sidebar_width = app.config().sidebar_width();
+    let focused_border_color = app.config().focused_border_color();
+
     // Vertical split: Header | Body | StatusBar
     let chunks = Layout::vertical([
         Constraint::Length(3), // Header (1 row + 2 for borders)
@@ -31,21 +34,44 @@ pub fn render(frame: &mut Frame, app: &App) {
     .split(frame.area());
 
     let focus = app.focus();
-    header::render(frame, chunks[0], focus == FocusArea::Header);
+    header::render(
+        frame,
+        chunks[0],
+        focus == FocusArea::Header,
+        focused_border_color,
+    );
 
     if app.is_fullscreen() {
         // Fullscreen: main panel takes entire body width (no sidebar).
-        main_panel::render(frame, chunks[1], app, focus == FocusArea::Main);
+        main_panel::render(
+            frame,
+            chunks[1],
+            app,
+            focus == FocusArea::Main,
+            focused_border_color,
+        );
     } else {
         // Normal: Sidebar | Main Panel
         let body_chunks = Layout::horizontal([
-            Constraint::Length(12), // Sidebar (fixed width)
-            Constraint::Min(0),     // Main panel (remaining space)
+            Constraint::Length(sidebar_width), // Sidebar (configurable width)
+            Constraint::Min(0),                // Main panel (remaining space)
         ])
         .split(chunks[1]);
 
-        sidebar::render(frame, body_chunks[0], app, focus == FocusArea::Sidebar);
-        main_panel::render(frame, body_chunks[1], app, focus == FocusArea::Main);
+        sidebar::render(
+            frame,
+            body_chunks[0],
+            app,
+            focus == FocusArea::Sidebar,
+            focused_border_color,
+        );
+        main_panel::render(
+            frame,
+            body_chunks[1],
+            app,
+            focus == FocusArea::Main,
+            focused_border_color,
+        );
     }
 
     status_bar::render(frame, chunks[2], app);
@@ -56,7 +82,12 @@ pub fn render(frame: &mut Frame, app: &App) {
 ///
 /// When `fullscreen` is true, the sidebar is hidden and the main panel
 /// occupies the entire body width.
-pub fn main_panel_terminal_size(width: u16, height: u16, fullscreen: bool) -> (u16, u16) {
+pub fn main_panel_terminal_size(
+    width: u16,
+    height: u16,
+    fullscreen: bool,
+    sidebar_width: u16,
+) -> (u16, u16) {
     let frame_area = Rect::new(0, 0, width, height);
     let chunks = Layout::vertical([
         Constraint::Length(3),
@@ -70,7 +101,8 @@ pub fn main_panel_terminal_size(width: u16, height: u16, fullscreen: bool) -> (u
         chunks[1]
     } else {
         let body_chunks =
-            Layout::horizontal([Constraint::Length(12), Constraint::Min(0)]).split(chunks[1]);
+            Layout::horizontal([Constraint::Length(sidebar_width), Constraint::Min(0)])
+                .split(chunks[1]);
         body_chunks[1]
     };
 
@@ -84,7 +116,12 @@ pub fn main_panel_terminal_size(width: u16, height: u16, fullscreen: bool) -> (u
 ///
 /// Returns `(header_rect, sidebar_rect, main_rect, status_bar_rect)`.
 /// When `fullscreen` is true, `sidebar_rect` is `None`.
-pub fn layout_rects(width: u16, height: u16, fullscreen: bool) -> (Rect, Option<Rect>, Rect, Rect) {
+pub fn layout_rects(
+    width: u16,
+    height: u16,
+    fullscreen: bool,
+    sidebar_width: u16,
+) -> (Rect, Option<Rect>, Rect, Rect) {
     let frame_area = Rect::new(0, 0, width, height);
     let chunks = Layout::vertical([
         Constraint::Length(3),
@@ -100,7 +137,8 @@ pub fn layout_rects(width: u16, height: u16, fullscreen: bool) -> (Rect, Option<
         (header, None, chunks[1], status_bar)
     } else {
         let body_chunks =
-            Layout::horizontal([Constraint::Length(12), Constraint::Min(0)]).split(chunks[1]);
+            Layout::horizontal([Constraint::Length(sidebar_width), Constraint::Min(0)])
+                .split(chunks[1]);
         (header, Some(body_chunks[0]), body_chunks[1], status_bar)
     }
 }
@@ -156,35 +194,45 @@ mod tests {
 
     #[test]
     fn main_panel_terminal_size_accounts_for_status_bar() {
-        // 80x24 terminal, non-fullscreen:
+        // 80x24 terminal, non-fullscreen, sidebar_width=20:
         // Body height = 24 - 3 (header) - 1 (status bar) = 20
-        // Main width = 80 - 12 (sidebar) = 68, inner = 68 - 2 = 66
+        // Main width = 80 - 20 (sidebar) = 60, inner = 60 - 2 = 58
         // Main height inner = 20 - 2 = 18
-        let (cols, rows) = main_panel_terminal_size(80, 24, false);
-        assert_eq!(cols, 66);
+        let (cols, rows) = main_panel_terminal_size(80, 24, false, 20);
+        assert_eq!(cols, 58);
         assert_eq!(rows, 18);
     }
 
     #[test]
     fn main_panel_terminal_size_fullscreen_uses_full_width() {
-        // Fullscreen: no sidebar
+        // Fullscreen: no sidebar, sidebar_width ignored
         // Main width = 80, inner = 80 - 2 = 78
         // Height same as above = 18
-        let (cols, rows) = main_panel_terminal_size(80, 24, true);
+        let (cols, rows) = main_panel_terminal_size(80, 24, true, 20);
         assert_eq!(cols, 78);
         assert_eq!(rows, 18);
     }
 
     #[test]
     fn layout_rects_fullscreen_has_no_sidebar() {
-        let (_, sidebar, _, _) = layout_rects(80, 24, true);
+        let (_, sidebar, _, _) = layout_rects(80, 24, true, 20);
         assert!(sidebar.is_none());
     }
 
     #[test]
     fn layout_rects_normal_has_sidebar() {
-        let (_, sidebar, _, _) = layout_rects(80, 24, false);
+        let (_, sidebar, _, _) = layout_rects(80, 24, false, 20);
         assert!(sidebar.is_some());
-        assert_eq!(sidebar.unwrap().width, 12);
+        assert_eq!(sidebar.unwrap().width, 20);
+    }
+
+    #[test]
+    fn sidebar_width_is_configurable() {
+        let (_, sidebar, _, _) = layout_rects(80, 24, false, 30);
+        assert_eq!(sidebar.unwrap().width, 30);
+
+        let (cols, _) = main_panel_terminal_size(80, 24, false, 30);
+        // 80 - 30 = 50, inner = 50 - 2 = 48
+        assert_eq!(cols, 48);
     }
 }

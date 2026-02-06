@@ -30,6 +30,8 @@ pub struct Workspace {
     branch_name: Option<String>,
     terminal: Option<WorkspaceTerminal>,
     terminal_error: Option<String>,
+    /// Whether the auto-spawn command has been sent for this workspace.
+    auto_spawned: bool,
 }
 
 impl std::fmt::Debug for Workspace {
@@ -75,6 +77,7 @@ impl Workspace {
             branch_name: None,
             terminal: None,
             terminal_error: None,
+            auto_spawned: false,
         }
     }
 
@@ -92,6 +95,7 @@ impl Workspace {
             branch_name: Some(branch_name.into()),
             terminal: None,
             terminal_error: None,
+            auto_spawned: false,
         }
     }
 
@@ -116,12 +120,16 @@ impl Workspace {
     }
 
     /// Ensure this workspace has a running terminal session.
+    ///
+    /// Returns `Ok(true)` when a fresh terminal was spawned, `Ok(false)`
+    /// when the existing terminal was kept (possibly resized).
     pub fn ensure_terminal_started(
         &mut self,
         cols: u16,
         rows: u16,
         shell: Option<&str>,
-    ) -> io::Result<()> {
+        scrollback_limit: usize,
+    ) -> io::Result<bool> {
         let cols = cols.max(1);
         let rows = rows.max(1);
 
@@ -136,7 +144,11 @@ impl Workspace {
             let cwd = self.terminal_cwd()?;
             let terminal = Terminal::spawn(cwd, shell)?;
             terminal.resize(cols, rows)?;
-            let mut screen = ScreenBuffer::new(usize::from(cols), usize::from(rows));
+            let mut screen = ScreenBuffer::new_with_scrollback(
+                usize::from(cols),
+                usize::from(rows),
+                scrollback_limit,
+            );
             let initial = terminal.read();
             if !initial.is_empty() {
                 screen.write(&initial);
@@ -148,10 +160,11 @@ impl Workspace {
                 exit_status: None,
             });
             self.terminal_error = None;
-            return Ok(());
+            return Ok(true);
         }
 
-        self.resize_terminal(cols, rows)
+        self.resize_terminal(cols, rows)?;
+        Ok(false)
     }
 
     /// Resize the workspace terminal if present.
@@ -302,6 +315,16 @@ impl Workspace {
         self.terminal_error = None;
     }
 
+    /// Whether the auto-spawn command has already been sent.
+    pub fn has_auto_spawned(&self) -> bool {
+        self.auto_spawned
+    }
+
+    /// Mark that the auto-spawn command has been sent.
+    pub fn mark_auto_spawned(&mut self) {
+        self.auto_spawned = true;
+    }
+
     fn terminal_cwd(&self) -> io::Result<PathBuf> {
         if let Some(path) = &self.worktree_path {
             Ok(path.clone())
@@ -320,6 +343,7 @@ impl From<WorkspaceState> for Workspace {
             branch_name: state.branch_name,
             terminal: None,
             terminal_error: None,
+            auto_spawned: false,
         }
     }
 }
@@ -357,7 +381,7 @@ mod tests {
     fn terminal_round_trip_and_exit_are_handled() {
         let mut workspace = Workspace::new("1", "W1");
         workspace
-            .ensure_terminal_started(80, 24, None)
+            .ensure_terminal_started(80, 24, None, 1000)
             .expect("start terminal");
 
         workspace
@@ -397,7 +421,7 @@ mod tests {
         );
 
         workspace
-            .ensure_terminal_started(80, 24, None)
+            .ensure_terminal_started(80, 24, None, 1000)
             .expect("restart terminal");
         workspace.poll_terminal().expect("poll restarted terminal");
         assert!(
@@ -412,10 +436,10 @@ mod tests {
         let mut ws_two = Workspace::new("2", "W2");
 
         ws_one
-            .ensure_terminal_started(80, 24, None)
+            .ensure_terminal_started(80, 24, None, 1000)
             .expect("start ws one");
         ws_two
-            .ensure_terminal_started(80, 24, None)
+            .ensure_terminal_started(80, 24, None, 1000)
             .expect("start ws two");
 
         ws_one
@@ -447,7 +471,7 @@ mod tests {
     fn terminal_scrollback_state_is_exposed_and_scrollable() {
         let mut workspace = Workspace::new("1", "W1");
         workspace
-            .ensure_terminal_started(80, 10, None)
+            .ensure_terminal_started(80, 10, None, 1000)
             .expect("start terminal");
 
         workspace
@@ -494,5 +518,28 @@ mod tests {
         );
 
         let _ = workspace.write_terminal_input(b"exit\r");
+    }
+
+    #[test]
+    fn ensure_terminal_started_returns_true_on_fresh_spawn() {
+        let mut workspace = Workspace::new("1", "W1");
+        let spawned = workspace
+            .ensure_terminal_started(80, 24, None, 1000)
+            .expect("start terminal");
+        assert!(spawned, "first call should report fresh spawn");
+
+        // Second call should return false (already running, just resized).
+        let spawned = workspace
+            .ensure_terminal_started(80, 24, None, 1000)
+            .expect("resize terminal");
+        assert!(!spawned, "second call should not report fresh spawn");
+
+        let _ = workspace.write_terminal_input(b"exit\r");
+    }
+
+    #[test]
+    fn auto_spawn_tracking_works() {
+        let workspace = Workspace::new("1", "W1");
+        assert!(!workspace.has_auto_spawned());
     }
 }

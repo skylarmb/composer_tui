@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     io::{self, stdout},
+    process::Command,
     time::Duration,
 };
 
@@ -34,13 +35,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    Config::load();
-    let mut app = App::new();
+    let config = Config::load();
+    let mut app = App::from_state_with_config(
+        composer_tui::AppState::load(),
+        discover_worktree_manager(),
+        config,
+    );
 
     loop {
         let size = terminal.size()?;
-        let (cols, rows) =
-            ui::main_panel_terminal_size(size.width, size.height, app.is_fullscreen());
+        let sidebar_width = app.config().sidebar_width();
+        let (cols, rows) = ui::main_panel_terminal_size(
+            size.width,
+            size.height,
+            app.is_fullscreen(),
+            sidebar_width,
+        );
         app.tick_terminals(cols, rows);
 
         // Render the UI
@@ -50,9 +60,16 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         if event::poll(EVENT_POLL_INTERVAL)? {
             loop {
                 match event::read()? {
-                    Event::Key(key) => handle_key_event(&mut app, key),
+                    Event::Key(key) => {
+                        let action = handle_key_event(&mut app, key);
+                        if let Some(EditorAction::OpenSettings) = action {
+                            open_settings_editor(terminal)?;
+                            app.reload_config();
+                        }
+                    }
                     Event::Mouse(mouse) => {
-                        handle_mouse_event(&mut app, mouse, size.width, size.height);
+                        let sidebar_width = app.config().sidebar_width();
+                        handle_mouse_event(&mut app, mouse, size.width, size.height, sidebar_width);
                     }
                     _ => {}
                 }
@@ -72,6 +89,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
     }
 
     Ok(())
+}
+
+fn discover_worktree_manager() -> Option<composer_tui::WorktreeManager> {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| composer_tui::WorktreeManager::new(cwd).ok())
 }
 
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
@@ -107,25 +130,31 @@ fn cleanup_terminal_on_panic() -> io::Result<()> {
     execute!(stdout(), LeaveAlternateScreen, Show, DisableMouseCapture)
 }
 
-fn handle_key_event(app: &mut App, key: KeyEvent) {
+/// Actions that require the event loop to do something outside normal key handling.
+enum EditorAction {
+    /// The user pressed `S` — open the config file in $EDITOR.
+    OpenSettings,
+}
+
+fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAction> {
     if matches!(key.kind, KeyEventKind::Release) {
-        return;
+        return None;
     }
 
     if app.is_modal_active() {
         handle_modal_key_event(app, key);
-        return;
+        return None;
     }
 
     if app.focus() == FocusArea::Main {
         handle_main_focus_key_event(app, key);
-        return;
+        return None;
     }
 
-    handle_navigation_key_event(app, key);
+    handle_navigation_key_event(app, key)
 }
 
-fn handle_navigation_key_event(app: &mut App, key: KeyEvent) {
+fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAction> {
     let focus_modifier = key
         .modifiers
         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
@@ -137,7 +166,7 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) {
             KeyCode::Char('j') => app.focus_down(),
             _ => {}
         }
-        return;
+        return None;
     }
 
     match key.code {
@@ -148,8 +177,12 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) {
         KeyCode::Char('n') => app.start_create_workspace(),
         KeyCode::Char('d') => app.start_delete_workspace(),
         KeyCode::Char('z') => app.toggle_fullscreen(),
+        KeyCode::Char('S') => return Some(EditorAction::OpenSettings),
+        KeyCode::Char('R') => app.reload_config(),
         _ => {}
     }
+
+    None
 }
 
 fn handle_main_focus_key_event(app: &mut App, key: KeyEvent) {
@@ -249,6 +282,48 @@ fn ctrl_char_to_byte(ch: char) -> Option<u8> {
     }
 }
 
+/// Open the config file in the user's $EDITOR.
+///
+/// Temporarily leaves raw mode and alternate screen so the editor can run
+/// normally. Re-enters after the editor exits and reloads config.
+fn open_settings_editor(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    let config_path = match composer_tui::config::config_path() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("Warning: could not locate config path: {err}");
+            return Ok(());
+        }
+    };
+
+    // Ensure the config file exists (create with commented template if missing).
+    Config::write_default_template()?;
+
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+
+    // Leave TUI mode.
+    cleanup_terminal(terminal)?;
+
+    // Spawn the editor and wait for it to finish.
+    let status = Command::new(&editor).arg(&config_path).status();
+
+    // Re-enter TUI mode regardless of editor result.
+    enable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        Hide,
+        EnableMouseCapture
+    )?;
+    // Force a full redraw after returning from editor.
+    terminal.clear()?;
+
+    if let Err(err) = status {
+        eprintln!("Warning: failed to launch editor '{editor}': {err}");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,10 +415,31 @@ mod tests {
         );
         assert_eq!(app.focus(), FocusArea::Sidebar);
     }
+
+    #[test]
+    fn s_key_returns_editor_action() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let action = handle_key_event(&mut app, key(KeyCode::Char('S'), KeyModifiers::NONE));
+        assert!(matches!(action, Some(EditorAction::OpenSettings)));
+    }
+
+    #[test]
+    fn r_key_reloads_config() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        // R should not panic and should return no editor action.
+        let action = handle_key_event(&mut app, key(KeyCode::Char('R'), KeyModifiers::NONE));
+        assert!(action.is_none());
+    }
 }
 
 /// Handle mouse click events for focus and workspace selection.
-fn handle_mouse_event(app: &mut App, mouse: MouseEvent, width: u16, height: u16) {
+fn handle_mouse_event(
+    app: &mut App,
+    mouse: MouseEvent,
+    width: u16,
+    height: u16,
+    sidebar_width: u16,
+) {
     // Only respond to left button presses (ignore drags, scrolls, releases).
     if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
         return;
@@ -355,7 +451,7 @@ fn handle_mouse_event(app: &mut App, mouse: MouseEvent, width: u16, height: u16)
     }
 
     let (_header_rect, sidebar_rect, main_rect, _status_rect) =
-        ui::layout_rects(width, height, app.is_fullscreen());
+        ui::layout_rects(width, height, app.is_fullscreen(), sidebar_width);
 
     let col = mouse.column;
     let row = mouse.row;

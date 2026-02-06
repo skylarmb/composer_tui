@@ -17,7 +17,13 @@ use crate::{
 };
 
 /// Render the main panel.
-pub fn render(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    focused: bool,
+    focused_border_color: TuiColor,
+) {
     let lines = if let Some(workspace) = app.selected_workspace() {
         workspace_lines(workspace, focused)
     } else {
@@ -28,15 +34,15 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         Block::default()
             .borders(Borders::ALL)
             .title("Terminal")
-            .border_style(border_style(focused)),
+            .border_style(border_style(focused, focused_border_color)),
     );
 
     frame.render_widget(content, area);
 }
 
-fn border_style(focused: bool) -> Style {
+fn border_style(focused: bool, focused_color: TuiColor) -> Style {
     if focused {
-        Style::default().fg(TuiColor::Yellow)
+        Style::default().fg(focused_color)
     } else {
         Style::default()
     }

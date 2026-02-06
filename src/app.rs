@@ -6,6 +6,7 @@
 use std::{env, io};
 
 use crate::{
+    config::Config,
     state::{AppState, WorkspaceState},
     workspace::Workspace,
     worktree::WorktreeManager,
@@ -22,15 +23,17 @@ pub struct App {
     worktree_manager: Option<WorktreeManager>,
     /// Whether the main panel is fullscreen (sidebar hidden).
     fullscreen: bool,
+    /// Persistent user configuration.
+    config: Config,
 }
 
 impl App {
-    /// Construct a new `App`, loading persisted state if available.
+    /// Construct a new `App`, loading persisted state and config.
     pub fn new() -> Self {
         Self::from_state(AppState::load())
     }
 
-    /// Construct an `App` from persisted state.
+    /// Construct an `App` from persisted state with default config.
     pub fn from_state(state: AppState) -> Self {
         Self::from_state_with_manager(state, discover_worktree_manager())
     }
@@ -39,6 +42,15 @@ impl App {
     pub fn from_state_with_manager(
         state: AppState,
         worktree_manager: Option<WorktreeManager>,
+    ) -> Self {
+        Self::from_state_with_config(state, worktree_manager, Config::default())
+    }
+
+    /// Construct an `App` from persisted state, manager, and config.
+    pub fn from_state_with_config(
+        state: AppState,
+        worktree_manager: Option<WorktreeManager>,
+        config: Config,
     ) -> Self {
         let workspaces: Vec<Workspace> =
             state.workspaces.into_iter().map(Workspace::from).collect();
@@ -51,6 +63,7 @@ impl App {
             input_mode: InputMode::Normal,
             worktree_manager,
             fullscreen: false,
+            config,
         }
     }
 
@@ -215,11 +228,43 @@ impl App {
         changed
     }
 
+    /// Current application config.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Replace the current config (e.g. after reloading from disk).
+    pub fn reload_config(&mut self) {
+        self.config = Config::load();
+    }
+
     /// Ensure selected workspace terminal is running and poll output.
+    ///
+    /// Passes configured shell and scrollback limit to terminal creation.
     pub fn tick_terminals(&mut self, cols: u16, rows: u16) {
+        let shell = self.config.default_shell.clone();
+        let scrollback_limit = self.config.scrollback_limit();
+        let auto_spawn_command = self.config.auto_spawn_command.clone();
+
         if let Some(workspace) = self.selected_workspace_mut() {
-            if let Err(err) = workspace.ensure_terminal_started(cols, rows, None) {
-                workspace.set_terminal_error(format!("failed to start terminal: {err}"));
+            match workspace.ensure_terminal_started(cols, rows, shell.as_deref(), scrollback_limit)
+            {
+                Ok(freshly_spawned) => {
+                    // Run auto-spawn command on first-ever spawn only.
+                    if let Some(cmd) = auto_spawn_command
+                        .filter(|_| freshly_spawned && !workspace.has_auto_spawned())
+                    {
+                        let input = format!("{cmd}\r");
+                        if let Err(err) = workspace.write_terminal_input(input.as_bytes()) {
+                            workspace
+                                .set_terminal_error(format!("failed to auto-run command: {err}"));
+                        }
+                        workspace.mark_auto_spawned();
+                    }
+                }
+                Err(err) => {
+                    workspace.set_terminal_error(format!("failed to start terminal: {err}"));
+                }
             }
         }
 
@@ -554,5 +599,31 @@ mod tests {
         let mut app = App::from_state_with_manager(AppState::default(), None);
         app.exit_fullscreen(); // already false
         assert!(!app.is_fullscreen());
+    }
+
+    #[test]
+    fn config_is_accessible() {
+        let config = Config {
+            sidebar_width: Some(30),
+            ..Config::default()
+        };
+        let app = App::from_state_with_config(AppState::default(), None, config);
+        assert_eq!(app.config().sidebar_width(), 30);
+    }
+
+    #[test]
+    fn reload_config_replaces_stored_config() {
+        let mut app = App::from_state_with_config(
+            AppState::default(),
+            None,
+            Config {
+                sidebar_width: Some(30),
+                ..Config::default()
+            },
+        );
+        assert_eq!(app.config().sidebar_width(), 30);
+        // reload_config loads from disk (which may differ), but at minimum
+        // it replaces the stored config without panicking.
+        app.reload_config();
     }
 }

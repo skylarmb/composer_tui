@@ -10,9 +10,9 @@ use ratatui::{
 };
 
 /// Render the header with centered "composer_tui" title.
-pub fn render(frame: &mut Frame, area: Rect, focused: bool) {
+pub fn render(frame: &mut Frame, area: Rect, focused: bool, focused_border_color: Color) {
     let style = if focused {
-        Style::default().fg(Color::Yellow).bold()
+        Style::default().fg(focused_border_color).bold()
     } else {
         Style::default().bold()
     };
@@ -27,15 +27,15 @@ pub fn render(frame: &mut Frame, area: Rect, focused: bool) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(border_style(focused)),
+            .border_style(border_style(focused, focused_border_color)),
     );
 
     frame.render_widget(title, area);
 }
 
-fn border_style(focused: bool) -> Style {
+fn border_style(focused: bool, focused_color: Color) -> Style {
     if focused {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(focused_color)
     } else {
         Style::default()
     }
