@@ -15,10 +15,14 @@ use ratatui::{
 
 use crate::{App, FocusArea, InputMode};
 
+// Temporarily disable the top bar while keeping header code available.
+const SHOW_TOP_BAR: bool = false;
+const TOP_BAR_HEIGHT: u16 = if SHOW_TOP_BAR { 3 } else { 0 };
+
 /// Render the entire UI layout.
 ///
 /// Layout structure:
-/// - Vertical split: Header (3 rows) | Body | StatusBar (1 row)
+/// - Vertical split: Header (optional) | Body | StatusBar (1 row)
 /// - Horizontal split of Body: Sidebar (configurable width) | MainPanel
 /// - When fullscreen: sidebar is hidden, main panel takes full body width
 pub fn render(frame: &mut Frame, app: &App) {
@@ -27,20 +31,21 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     // Vertical split: Header | Body | StatusBar
     let chunks = Layout::vertical([
-        Constraint::Length(3), // Header (1 row + 2 for borders)
-        Constraint::Min(0),    // Body (remaining space)
-        Constraint::Length(1), // Status bar (single row, no border)
+        Constraint::Length(TOP_BAR_HEIGHT), // Header (disabled for now)
+        Constraint::Min(0),                 // Body (remaining space)
+        Constraint::Length(1),              // Status bar (single row, no border)
     ])
     .split(frame.area());
 
     let focus = app.focus();
-    header::render(
-        frame,
-        chunks[0],
-        app,
-        focus == FocusArea::Header,
-        focused_border_color,
-    );
+    if SHOW_TOP_BAR {
+        header::render(
+            frame,
+            chunks[0],
+            focus == FocusArea::Header,
+            focused_border_color,
+        );
+    }
 
     if app.is_fullscreen() {
         // Fullscreen: main panel takes entire body width (no sidebar).
@@ -91,7 +96,7 @@ pub fn main_panel_terminal_size(
 ) -> (u16, u16) {
     let frame_area = Rect::new(0, 0, width, height);
     let chunks = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(TOP_BAR_HEIGHT),
         Constraint::Min(0),
         Constraint::Length(1), // Status bar
     ])
@@ -125,7 +130,7 @@ pub fn layout_rects(
 ) -> (Rect, Option<Rect>, Rect, Rect) {
     let frame_area = Rect::new(0, 0, width, height);
     let chunks = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(TOP_BAR_HEIGHT),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
@@ -144,9 +149,9 @@ pub fn layout_rects(
     }
 }
 
-/// Resolve a clicked tab index from header coordinates, if any.
-pub fn header_tab_index_at(header_rect: Rect, app: &App, col: u16, row: u16) -> Option<usize> {
-    header::tab_index_at(header_rect, app, col, row)
+/// Resolve a clicked tab index from main panel top border coordinates.
+pub fn main_panel_tab_index_at(main_rect: Rect, app: &App, col: u16, row: u16) -> Option<usize> {
+    main_panel::tab_index_at(main_rect, app, col, row)
 }
 
 fn render_modal(frame: &mut Frame, app: &App) {
@@ -205,22 +210,22 @@ mod tests {
     #[test]
     fn main_panel_terminal_size_accounts_for_status_bar() {
         // 80x24 terminal, non-fullscreen, sidebar_width=20:
-        // Body height = 24 - 3 (header) - 1 (status bar) = 20
+        // Body height = 24 - 0 (header disabled) - 1 (status bar) = 23
         // Main width = 80 - 20 (sidebar) = 60, inner = 60 - 2 = 58
-        // Main height inner = 20 - 2 = 18
+        // Main height inner = 23 - 2 = 21
         let (cols, rows) = main_panel_terminal_size(80, 24, false, 20);
         assert_eq!(cols, 58);
-        assert_eq!(rows, 18);
+        assert_eq!(rows, 21);
     }
 
     #[test]
     fn main_panel_terminal_size_fullscreen_uses_full_width() {
         // Fullscreen: no sidebar, sidebar_width ignored
         // Main width = 80, inner = 80 - 2 = 78
-        // Height same as above = 18
+        // Height same as above = 21
         let (cols, rows) = main_panel_terminal_size(80, 24, true, 20);
         assert_eq!(cols, 78);
-        assert_eq!(rows, 18);
+        assert_eq!(rows, 21);
     }
 
     #[test]
@@ -244,18 +249,5 @@ mod tests {
         let (cols, _) = main_panel_terminal_size(80, 24, false, 30);
         // 80 - 30 = 50, inner = 50 - 2 = 48
         assert_eq!(cols, 48);
-    }
-
-    #[test]
-    fn header_tab_index_resolves_clicks() {
-        let mut app = App::from_state_with_manager(crate::AppState::default(), None);
-        app.add_tab_to_selected_workspace();
-        app.add_tab_to_selected_workspace();
-
-        let (header, _, _, _) = layout_rects(120, 24, false, 20);
-        // composer_tui (11) + two spaces, then first tab starts.
-        let col = header.x + 1 + 11 + 2 + 1;
-        let row = header.y + 1;
-        assert_eq!(header_tab_index_at(header, &app, col, row), Some(0));
     }
 }

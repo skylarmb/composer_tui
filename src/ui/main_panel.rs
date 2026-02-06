@@ -24,6 +24,7 @@ pub fn render(
     focused: bool,
     focused_border_color: TuiColor,
 ) {
+    let title = main_title_line(app);
     let lines = if let Some(workspace) = app.selected_workspace() {
         workspace_lines(workspace, focused)
     } else {
@@ -33,11 +34,92 @@ pub fn render(
     let content = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Terminal")
+            .title(title)
             .border_style(border_style(focused, focused_border_color)),
     );
 
     frame.render_widget(content, area);
+}
+
+/// Resolve a tab index from a click on the main-panel top border.
+pub fn tab_index_at(area: Rect, app: &App, col: u16, row: u16) -> Option<usize> {
+    if row != area.y {
+        return None;
+    }
+    let workspace = app.selected_workspace()?;
+    if workspace.tab_count() <= 1 {
+        return None;
+    }
+
+    let mut x = area.x.saturating_add(1);
+    let right = area.x.saturating_add(area.width.saturating_sub(1));
+    for fragment in tab_fragments(workspace) {
+        let end = x.saturating_add(fragment.text.len() as u16);
+        if col >= x && col < end && col < right {
+            return Some(fragment.index);
+        }
+        x = end;
+        if x < right {
+            x = x.saturating_add(1); // separator '-'
+        }
+    }
+    None
+}
+
+fn main_title_line(app: &App) -> Line<'static> {
+    let Some(workspace) = app.selected_workspace() else {
+        return Line::from("Terminal");
+    };
+    let fragments = tab_fragments(workspace);
+    if fragments.is_empty() {
+        return Line::from("Terminal");
+    }
+
+    let mut spans = Vec::new();
+    for (idx, fragment) in fragments.iter().enumerate() {
+        let style = if fragment.active {
+            Style::default()
+                .fg(TuiColor::Black)
+                .bg(TuiColor::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TuiColor::Gray)
+        };
+        spans.push(Span::styled(fragment.text.clone(), style));
+        if idx + 1 < fragments.len() {
+            spans.push(Span::styled(
+                "-".to_string(),
+                Style::default().fg(TuiColor::DarkGray),
+            ));
+        }
+    }
+    Line::from(spans)
+}
+
+#[derive(Debug, Clone)]
+struct TabFragment {
+    index: usize,
+    text: String,
+    active: bool,
+}
+
+fn tab_fragments(workspace: &crate::Workspace) -> Vec<TabFragment> {
+    if workspace.tab_count() == 0 {
+        return Vec::new();
+    }
+
+    (0..workspace.tab_count())
+        .map(|index| {
+            let label = workspace
+                .tab_title(index)
+                .unwrap_or_else(|| format!("tab{}", index + 1));
+            TabFragment {
+                index,
+                text: format!("[{label}]"),
+                active: index == workspace.active_tab_index(),
+            }
+        })
+        .collect()
 }
 
 fn border_style(focused: bool, focused_color: TuiColor) -> Style {
@@ -211,5 +293,18 @@ mod tests {
         let lines = screen_to_lines(&screen, 1, None);
         assert_eq!(lines[0].spans[0].content.as_ref(), "L2bb");
         assert_eq!(lines[1].spans[0].content.as_ref(), "L3cc");
+    }
+
+    #[test]
+    fn tab_index_at_maps_main_border_clicks() {
+        let mut app = App::from_state_with_manager(crate::AppState::default(), None);
+        app.add_tab_to_selected_workspace();
+        app.add_tab_to_selected_workspace();
+        let area = Rect::new(20, 3, 80, 20);
+
+        // First tab starts at area.x + 1 on top border row.
+        let col = area.x + 2;
+        let row = area.y;
+        assert_eq!(tab_index_at(area, &app, col, row), Some(0));
     }
 }

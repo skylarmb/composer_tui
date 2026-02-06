@@ -5,9 +5,11 @@
 
 use std::{env, io};
 
+#[cfg(not(test))]
+use crate::state::WorkspaceState;
 use crate::{
     config::Config,
-    state::{AppState, WorkspaceState},
+    state::AppState,
     workspace::{Workspace, WorkspaceTerminalState},
     worktree::WorktreeManager,
 };
@@ -380,9 +382,18 @@ impl App {
 
     /// Persist the current app state to disk.
     pub fn save_state(&self) -> io::Result<()> {
+        #[cfg(test)]
+        {
+            // Tests run in parallel and some mutate HOME; avoid cross-test
+            // interference from filesystem writes in app-level unit tests.
+            return Ok(());
+        }
+
+        #[cfg(not(test))]
         self.to_state().save()
     }
 
+    #[cfg(not(test))]
     fn to_state(&self) -> AppState {
         let workspaces = self.workspaces.iter().map(WorkspaceState::from).collect();
         AppState::new(workspaces, self.selected_index)

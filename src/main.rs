@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn mouse_click_on_header_tab_switches_tab() {
+    fn mouse_click_on_main_border_tab_switches_tab() {
         let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
         app.add_tab_to_selected_workspace();
         app.add_tab_to_selected_workspace();
@@ -529,11 +529,11 @@ mod tests {
             2
         );
 
-        let (header, _, _, _) = ui::layout_rects(120, 24, false, 20);
+        let (_header, _, main, _) = ui::layout_rects(120, 24, false, 20);
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: header.x + 1 + 11 + 2 + 1,
-            row: header.y + 1,
+            column: main.x + 2,
+            row: main.y,
             modifiers: KeyModifiers::NONE,
         };
 
@@ -566,13 +566,13 @@ fn handle_mouse_event(
         return;
     }
 
-    let (header_rect, sidebar_rect, main_rect, _status_rect) =
+    let (_header_rect, sidebar_rect, main_rect, _status_rect) =
         ui::layout_rects(width, height, app.is_fullscreen(), sidebar_width);
 
     let col = mouse.column;
     let row = mouse.row;
 
-    if let Some(tab_index) = ui::header_tab_index_at(header_rect, app, col, row) {
+    if let Some(tab_index) = ui::main_panel_tab_index_at(main_rect, app, col, row) {
         app.select_selected_workspace_tab(tab_index);
         app.focus_right();
         return;
