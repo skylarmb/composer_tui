@@ -14,6 +14,8 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 
 use composer_tui::{ui, App, Config, FocusArea, InputMode};
 
+const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(16);
+
 fn main() -> Result<(), Box<dyn Error>> {
     install_panic_hook();
 
@@ -41,9 +43,15 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         terminal.draw(|frame| ui::render(frame, &app))?;
 
         // Handle input events
-        if event::poll(Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()? {
-                handle_key_event(&mut app, key);
+        if event::poll(EVENT_POLL_INTERVAL)? {
+            loop {
+                if let Event::Key(key) = event::read()? {
+                    handle_key_event(&mut app, key);
+                }
+
+                if !event::poll(Duration::from_millis(0))? {
+                    break;
+                }
             }
         }
 

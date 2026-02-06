@@ -43,8 +43,12 @@ fn border_style(focused: bool) -> Style {
 }
 
 fn workspace_lines(workspace: &crate::Workspace, focused: bool) -> Vec<Line<'static>> {
+    let show_cursor =
+        focused && matches!(workspace.terminal_state(), WorkspaceTerminalState::Running);
+
     let mut lines = if let Some(screen) = workspace.terminal_screen() {
-        screen_to_lines(screen)
+        let cursor = show_cursor.then(|| screen.cursor_position());
+        screen_to_lines(screen, cursor)
     } else {
         let mut base = Vec::new();
         base.push(Line::from(format!("Workspace: {}", workspace.name())));
@@ -97,7 +101,7 @@ fn workspace_lines(workspace: &crate::Workspace, focused: bool) -> Vec<Line<'sta
     lines
 }
 
-fn screen_to_lines(screen: &ScreenBuffer) -> Vec<Line<'static>> {
+fn screen_to_lines(screen: &ScreenBuffer, cursor: Option<(usize, usize)>) -> Vec<Line<'static>> {
     let mut lines = Vec::with_capacity(screen.rows());
     for row in 0..screen.rows() {
         let Some(cells) = screen.row_cells(row) else {
@@ -111,16 +115,25 @@ fn screen_to_lines(screen: &ScreenBuffer) -> Vec<Line<'static>> {
         }
 
         let mut spans = Vec::new();
-        let mut current_style = cells[0].style;
+        let mut current_style = (
+            cells[0].style,
+            cursor.is_some_and(|(cursor_row, cursor_col)| cursor_row == row && cursor_col == 0),
+        );
         let mut current_text = String::new();
 
-        for cell in cells {
-            if cell.style != current_style && !current_text.is_empty() {
+        for (col, cell) in cells.iter().enumerate() {
+            let style = (
+                cell.style,
+                cursor
+                    .is_some_and(|(cursor_row, cursor_col)| cursor_row == row && cursor_col == col),
+            );
+
+            if style != current_style && !current_text.is_empty() {
                 spans.push(Span::styled(
                     std::mem::take(&mut current_text),
                     terminal_style(current_style),
                 ));
-                current_style = cell.style;
+                current_style = style;
             }
             current_text.push(cell.ch);
         }
@@ -134,7 +147,7 @@ fn screen_to_lines(screen: &ScreenBuffer) -> Vec<Line<'static>> {
     lines
 }
 
-fn terminal_style(style: CellStyle) -> Style {
+fn terminal_style((style, cursor): (CellStyle, bool)) -> Style {
     let out = Style::default()
         .fg(map_color(style.fg))
         .bg(map_color(style.bg));
@@ -148,6 +161,9 @@ fn terminal_style(style: CellStyle) -> Style {
     if style.underline {
         modifiers |= Modifier::UNDERLINED;
     }
+    if cursor {
+        modifiers |= Modifier::REVERSED;
+    }
     out.add_modifier(modifiers)
 }
 
@@ -156,5 +172,36 @@ fn map_color(color: Color) -> TuiColor {
         Color::Default => TuiColor::Reset,
         Color::Indexed(index) => TuiColor::Indexed(index),
         Color::Rgb(r, g, b) => TuiColor::Rgb(r, g, b),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screen_lines_highlight_cursor_cell_when_requested() {
+        let mut screen = ScreenBuffer::new(3, 1);
+        screen.write(b"ab");
+
+        let lines = screen_to_lines(&screen, Some((0, 2)));
+        let cursor_span = lines[0]
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == " ")
+            .expect("cursor span should exist");
+        assert!(cursor_span.style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn screen_lines_do_not_highlight_cursor_when_absent() {
+        let mut screen = ScreenBuffer::new(3, 1);
+        screen.write(b"ab");
+
+        let lines = screen_to_lines(&screen, None);
+        assert!(lines[0]
+            .spans
+            .iter()
+            .all(|span| !span.style.add_modifier.contains(Modifier::REVERSED)));
     }
 }
