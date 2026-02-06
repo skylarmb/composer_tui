@@ -57,6 +57,10 @@ pub struct ScreenBuffer {
     cursor_col: usize,
     current_style: CellStyle,
     parser: Parser,
+    /// Deferred wrap flag: set when a character is placed at the last column.
+    /// The actual wrap (CR+LF) only happens when the *next* printable character
+    /// arrives, matching real terminal behavior (DEC VT220 spec).
+    wrap_pending: bool,
 }
 
 impl ScreenBuffer {
@@ -73,6 +77,7 @@ impl ScreenBuffer {
             cursor_col: 0,
             current_style: CellStyle::default(),
             parser: Parser::new(),
+            wrap_pending: false,
         }
     }
 
@@ -148,6 +153,7 @@ impl ScreenBuffer {
         self.cursor_row = 0;
         self.cursor_col = 0;
         self.current_style = CellStyle::default();
+        self.wrap_pending = false;
     }
 
     fn clear_all(&mut self) {
@@ -205,14 +211,22 @@ impl ScreenBuffer {
     }
 
     fn put_char(&mut self, ch: char) {
+        // If a previous character triggered wrap_pending, perform the deferred
+        // wrap now (before placing this character).
+        if self.wrap_pending {
+            self.wrap_pending = false;
+            self.cursor_col = 0;
+            self.line_feed();
+        }
+
         self.cells[self.cursor_row][self.cursor_col] = Cell {
             ch,
             style: self.current_style,
         };
 
         if self.cursor_col + 1 >= self.cols {
-            self.cursor_col = 0;
-            self.line_feed();
+            // Don't wrap yet — defer until the next printable character.
+            self.wrap_pending = true;
         } else {
             self.cursor_col += 1;
         }
@@ -319,14 +333,25 @@ impl Perform for ScreenBuffer {
 
     fn execute(&mut self, byte: u8) {
         match byte {
-            b'\n' | 0x0b | 0x0c => self.line_feed(),
-            b'\r' => self.cursor_col = 0,
+            b'\n' | 0x0b | 0x0c => {
+                // LF clears wrap_pending — the newline handles line advancement.
+                self.wrap_pending = false;
+                self.line_feed();
+            }
+            b'\r' => {
+                // CR clears wrap_pending and returns cursor to column 0.
+                self.wrap_pending = false;
+                self.cursor_col = 0;
+            }
             0x08 => {
+                // Backspace clears wrap_pending.
+                self.wrap_pending = false;
                 if self.cursor_col > 0 {
                     self.cursor_col -= 1;
                 }
             }
             b'\t' => {
+                self.wrap_pending = false;
                 let next_tab = ((self.cursor_col / 8) + 1) * 8;
                 self.cursor_col = next_tab.min(self.cols - 1);
             }
@@ -343,40 +368,61 @@ impl Perform for ScreenBuffer {
     fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
     fn csi_dispatch(&mut self, params: &Params, _: &[u8], _: bool, action: char) {
+        // Any CSI sequence that moves the cursor or modifies the screen
+        // clears the deferred wrap state.
         match action {
             'A' => {
+                self.wrap_pending = false;
                 let count = csi_count(params, 1);
                 self.cursor_row = self.cursor_row.saturating_sub(count);
             }
             'B' => {
+                self.wrap_pending = false;
                 let count = csi_count(params, 1);
                 self.cursor_row = self.cursor_row.saturating_add(count).min(self.rows - 1);
             }
             'C' => {
+                self.wrap_pending = false;
                 let count = csi_count(params, 1);
                 self.cursor_col = self.cursor_col.saturating_add(count).min(self.cols - 1);
             }
             'D' => {
+                self.wrap_pending = false;
                 let count = csi_count(params, 1);
                 self.cursor_col = self.cursor_col.saturating_sub(count);
             }
             'G' => {
+                self.wrap_pending = false;
                 let col = csi_param(params, 0, 1).saturating_sub(1);
                 self.set_cursor_position(self.cursor_row, usize::from(col));
             }
             'H' | 'f' => {
+                self.wrap_pending = false;
                 let row = csi_param(params, 0, 1).saturating_sub(1);
                 let col = csi_param(params, 1, 1).saturating_sub(1);
                 self.set_cursor_position(usize::from(row), usize::from(col));
             }
             'd' => {
+                self.wrap_pending = false;
                 let row = csi_param(params, 0, 1).saturating_sub(1);
                 self.set_cursor_position(usize::from(row), self.cursor_col);
             }
-            'J' => self.clear_screen_mode(csi_param(params, 0, 0)),
-            'K' => self.clear_line_mode(csi_param(params, 0, 0)),
-            'S' => self.scroll_up(csi_count(params, 1)),
-            'T' => self.scroll_down(csi_count(params, 1)),
+            'J' => {
+                self.wrap_pending = false;
+                self.clear_screen_mode(csi_param(params, 0, 0));
+            }
+            'K' => {
+                self.wrap_pending = false;
+                self.clear_line_mode(csi_param(params, 0, 0));
+            }
+            'S' => {
+                self.wrap_pending = false;
+                self.scroll_up(csi_count(params, 1));
+            }
+            'T' => {
+                self.wrap_pending = false;
+                self.scroll_down(csi_count(params, 1));
+            }
             'm' => self.apply_sgr(params),
             _ => {}
         }
@@ -460,6 +506,44 @@ mod tests {
 
         assert_eq!(screen.cell(0, 3).map(|c| c.ch), Some('N'));
         assert_eq!(screen.cell(0, 3).map(|c| c.style.fg), Some(Color::Default));
+    }
+
+    #[test]
+    fn deferred_wrap_prevents_double_spacing() {
+        // Simulates a full-width line followed by \r\n. Without deferred wrap,
+        // the auto-wrap at column end + the explicit \n would produce a blank
+        // line between each content line.
+        let mut screen = ScreenBuffer::new(4, 4);
+
+        // Fill row 0 exactly (4 chars), then \r\n, then next line content.
+        screen.write(b"ABCD\r\nEFGH\r\nIJ");
+
+        // With deferred wrap: ABCD fills row 0, wrap_pending is set.
+        // \r clears wrap_pending + sets col=0. \n does line_feed to row 1.
+        // EFGH fills row 1, wrap_pending is set.
+        // \r clears wrap_pending + sets col=0. \n does line_feed to row 2.
+        // IJ starts at row 2.
+        assert_eq!(screen.row_text(0).as_deref(), Some("ABCD"));
+        assert_eq!(screen.row_text(1).as_deref(), Some("EFGH"));
+        assert_eq!(screen.row_text(2).as_deref(), Some("IJ  "));
+        assert_eq!(screen.row_text(3).as_deref(), Some("    ")); // no blank line gap
+    }
+
+    #[test]
+    fn wrap_pending_cleared_by_cursor_movement() {
+        let mut screen = ScreenBuffer::new(4, 3);
+
+        // Fill row 0 exactly → wrap_pending set.
+        screen.write(b"ABCD");
+        assert_eq!(screen.cursor_position(), (0, 3)); // cursor stays at last col
+
+        // CSI cursor movement clears wrap_pending without wrapping.
+        screen.write(b"\x1b[1;1H"); // CUP to row 1, col 1 (0-indexed: 0,0)
+        assert_eq!(screen.cursor_position(), (0, 0));
+
+        // Writing should overwrite row 0, not advance to row 1.
+        screen.write(b"X");
+        assert_eq!(screen.row_text(0).as_deref(), Some("XBCD"));
     }
 
     #[test]
