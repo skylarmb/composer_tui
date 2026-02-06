@@ -3,6 +3,7 @@
 pub mod app;
 pub mod config;
 pub mod state;
+pub mod tab;
 pub mod terminal;
 pub mod ui;
 pub mod workspace;
@@ -10,7 +11,7 @@ pub mod worktree;
 
 pub use app::{App, FocusArea, InputMode};
 pub use config::Config;
-pub use state::{AppState, WorkspaceState};
+pub use state::{AppState, TabState, WorkspaceState};
 pub use workspace::Workspace;
 pub use worktree::{WorktreeError, WorktreeInfo, WorktreeManager};
 

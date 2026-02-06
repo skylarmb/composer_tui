@@ -37,6 +37,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     header::render(
         frame,
         chunks[0],
+        app,
         focus == FocusArea::Header,
         focused_border_color,
     );
@@ -143,6 +144,11 @@ pub fn layout_rects(
     }
 }
 
+/// Resolve a clicked tab index from header coordinates, if any.
+pub fn header_tab_index_at(header_rect: Rect, app: &App, col: u16, row: u16) -> Option<usize> {
+    header::tab_index_at(header_rect, app, col, row)
+}
+
 fn render_modal(frame: &mut Frame, app: &App) {
     let (title, body) = match app.input_mode() {
         InputMode::Normal => return,
@@ -155,6 +161,10 @@ fn render_modal(frame: &mut Frame, app: &App) {
             format!(
                 "Delete workspace '{workspace_name}'?\n\nThis removes the git worktree.\n\nEnter = confirm\nEsc = cancel"
             ),
+        ),
+        InputMode::ConfirmCloseTab => (
+            "Close Running Tab",
+            "The active tab still has a running process.\n\nClose it anyway?\n\nEnter = close tab\nEsc = cancel".to_string(),
         ),
         InputMode::Error { message } => (
             "Error",
@@ -234,5 +244,18 @@ mod tests {
         let (cols, _) = main_panel_terminal_size(80, 24, false, 30);
         // 80 - 30 = 50, inner = 50 - 2 = 48
         assert_eq!(cols, 48);
+    }
+
+    #[test]
+    fn header_tab_index_resolves_clicks() {
+        let mut app = App::from_state_with_manager(crate::AppState::default(), None);
+        app.add_tab_to_selected_workspace();
+        app.add_tab_to_selected_workspace();
+
+        let (header, _, _, _) = layout_rects(120, 24, false, 20);
+        // composer_tui (11) + two spaces, then first tab starts.
+        let col = header.x + 1 + 11 + 2 + 1;
+        let row = header.y + 1;
+        assert_eq!(header_tab_index_at(header, &app, col, row), Some(0));
     }
 }

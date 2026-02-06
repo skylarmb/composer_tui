@@ -146,6 +146,10 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAction> {
         return None;
     }
 
+    if handle_global_tab_switch_key_event(app, key) {
+        return None;
+    }
+
     if app.focus() == FocusArea::Main {
         handle_main_focus_key_event(app, key);
         return None;
@@ -155,21 +159,44 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAction> {
 }
 
 fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAction> {
-    let focus_modifier = key
+    if key
         .modifiers
-        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
-    if focus_modifier {
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    {
         match key.code {
-            KeyCode::Char('h') => app.focus_left(),
-            KeyCode::Char('l') => app.focus_right(),
-            KeyCode::Char('k') => app.focus_up(),
-            KeyCode::Char('j') => app.focus_down(),
+            KeyCode::Char('h') => {
+                app.focus_left();
+                return None;
+            }
+            KeyCode::Char('l') => {
+                app.focus_right();
+                return None;
+            }
+            KeyCode::Char('k') => {
+                app.focus_up();
+                return None;
+            }
+            KeyCode::Char('j') => {
+                app.focus_down();
+                return None;
+            }
             _ => {}
         }
-        return None;
     }
 
     match key.code {
+        KeyCode::Char('t')
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                && app.focus() == FocusArea::Sidebar =>
+        {
+            app.add_tab_to_selected_workspace();
+        }
+        KeyCode::Char('w')
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                && app.focus() == FocusArea::Sidebar =>
+        {
+            app.start_close_selected_workspace_tab();
+        }
         KeyCode::Char('q') | KeyCode::Esc => app.quit(),
         KeyCode::Char('j') | KeyCode::Down => app.select_next(),
         KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
@@ -183,6 +210,26 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAct
     }
 
     None
+}
+
+fn handle_global_tab_switch_key_event(app: &mut App, key: KeyEvent) -> bool {
+    if !key.modifiers.contains(KeyModifiers::ALT) {
+        return false;
+    }
+
+    let KeyCode::Char(ch) = key.code else {
+        return false;
+    };
+    let Some(number) = ch.to_digit(10) else {
+        return false;
+    };
+    if number == 0 || number > 9 {
+        return false;
+    }
+
+    let index = (number as usize) - 1;
+    app.select_selected_workspace_tab(index);
+    true
 }
 
 fn handle_main_focus_key_event(app: &mut App, key: KeyEvent) {
@@ -430,6 +477,75 @@ mod tests {
         let action = handle_key_event(&mut app, key(KeyCode::Char('R'), KeyModifiers::NONE));
         assert!(action.is_none());
     }
+
+    #[test]
+    fn alt_number_switches_tabs_from_main_focus() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        app.add_tab_to_selected_workspace();
+        app.add_tab_to_selected_workspace();
+        app.focus_right();
+
+        let action = handle_key_event(&mut app, key(KeyCode::Char('1'), KeyModifiers::ALT));
+        assert!(action.is_none());
+        assert_eq!(
+            app.selected_workspace()
+                .expect("workspace")
+                .active_tab_index(),
+            0
+        );
+
+        let action = handle_key_event(&mut app, key(KeyCode::Char('3'), KeyModifiers::ALT));
+        assert!(action.is_none());
+        assert_eq!(
+            app.selected_workspace()
+                .expect("workspace")
+                .active_tab_index(),
+            2
+        );
+    }
+
+    #[test]
+    fn ctrl_t_and_ctrl_w_manage_tabs_from_sidebar() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        assert_eq!(app.focus(), FocusArea::Sidebar);
+        assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 1);
+
+        handle_key_event(&mut app, key(KeyCode::Char('t'), KeyModifiers::CONTROL));
+        assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 2);
+
+        handle_key_event(&mut app, key(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 1);
+    }
+
+    #[test]
+    fn mouse_click_on_header_tab_switches_tab() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        app.add_tab_to_selected_workspace();
+        app.add_tab_to_selected_workspace();
+        assert_eq!(
+            app.selected_workspace()
+                .expect("workspace")
+                .active_tab_index(),
+            2
+        );
+
+        let (header, _, _, _) = ui::layout_rects(120, 24, false, 20);
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: header.x + 1 + 11 + 2 + 1,
+            row: header.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        handle_mouse_event(&mut app, click, 120, 24, 20);
+        assert_eq!(
+            app.selected_workspace()
+                .expect("workspace")
+                .active_tab_index(),
+            0
+        );
+        assert_eq!(app.focus(), FocusArea::Main);
+    }
 }
 
 /// Handle mouse click events for focus and workspace selection.
@@ -450,11 +566,17 @@ fn handle_mouse_event(
         return;
     }
 
-    let (_header_rect, sidebar_rect, main_rect, _status_rect) =
+    let (header_rect, sidebar_rect, main_rect, _status_rect) =
         ui::layout_rects(width, height, app.is_fullscreen(), sidebar_width);
 
     let col = mouse.column;
     let row = mouse.row;
+
+    if let Some(tab_index) = ui::header_tab_index_at(header_rect, app, col, row) {
+        app.select_selected_workspace_tab(tab_index);
+        app.focus_right();
+        return;
+    }
 
     if let Some(sidebar) = sidebar_rect {
         if rect_contains(sidebar, col, row) {

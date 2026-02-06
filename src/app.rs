@@ -8,7 +8,7 @@ use std::{env, io};
 use crate::{
     config::Config,
     state::{AppState, WorkspaceState},
-    workspace::Workspace,
+    workspace::{Workspace, WorkspaceTerminalState},
     worktree::WorktreeManager,
 };
 
@@ -129,6 +129,10 @@ impl App {
             InputMode::Normal => {}
             InputMode::CreateWorkspace { name } => self.create_workspace(name),
             InputMode::ConfirmDelete { workspace_name } => self.delete_workspace(workspace_name),
+            InputMode::ConfirmCloseTab => {
+                let _ = self.close_selected_workspace_tab();
+                self.input_mode = InputMode::Normal;
+            }
             InputMode::Error { .. } => self.input_mode = InputMode::Normal,
         }
     }
@@ -240,7 +244,8 @@ impl App {
 
     /// Ensure selected workspace terminal is running and poll output.
     ///
-    /// Passes configured shell and scrollback limit to terminal creation.
+    /// Passes configured shell and scrollback limit to terminal creation,
+    /// then polls all tabs across all workspaces.
     pub fn tick_terminals(&mut self, cols: u16, rows: u16) {
         let shell = self.config.default_shell.clone();
         let scrollback_limit = self.config.scrollback_limit();
@@ -269,10 +274,71 @@ impl App {
         }
 
         for workspace in &mut self.workspaces {
-            if let Err(err) = workspace.poll_terminal() {
-                workspace.set_terminal_error(format!("terminal I/O error: {err}"));
-            }
+            workspace.poll_tabs();
         }
+    }
+
+    /// Add a new tab to the selected workspace and persist state.
+    pub fn add_tab_to_selected_workspace(&mut self) {
+        {
+            let Some(workspace) = self.selected_workspace_mut() else {
+                return;
+            };
+            workspace.add_tab();
+        }
+        if let Err(err) = self.save_state() {
+            self.show_error(format!("tab created but failed to save state: {err}"));
+        }
+    }
+
+    /// Close the active tab in selected workspace, asking for confirmation
+    /// if the tab is currently running.
+    pub fn start_close_selected_workspace_tab(&mut self) {
+        let Some(workspace) = self.selected_workspace() else {
+            return;
+        };
+        if workspace.tab_count() <= 1 {
+            return;
+        }
+
+        if workspace.terminal_state() == WorkspaceTerminalState::Running {
+            self.input_mode = InputMode::ConfirmCloseTab;
+        } else {
+            let _ = self.close_selected_workspace_tab();
+        }
+    }
+
+    /// Close the active tab in the selected workspace and persist state.
+    pub fn close_selected_workspace_tab(&mut self) -> bool {
+        let closed = {
+            let Some(workspace) = self.selected_workspace_mut() else {
+                return false;
+            };
+            workspace.close_tab()
+        };
+        if !closed {
+            return false;
+        }
+        if let Err(err) = self.save_state() {
+            self.show_error(format!("tab closed but failed to save state: {err}"));
+        }
+        true
+    }
+
+    /// Select a tab by index in the selected workspace.
+    ///
+    /// Returns `true` if the selected tab changed.
+    pub fn select_selected_workspace_tab(&mut self, index: usize) -> bool {
+        let changed = {
+            let Some(workspace) = self.selected_workspace_mut() else {
+                return false;
+            };
+            workspace.select_tab(index)
+        };
+        if changed {
+            let _ = self.save_state();
+        }
+        changed
     }
 
     /// Send input bytes to the selected workspace terminal.
@@ -432,6 +498,7 @@ pub enum InputMode {
     Normal,
     CreateWorkspace { name: String },
     ConfirmDelete { workspace_name: String },
+    ConfirmCloseTab,
     Error { message: String },
 }
 
@@ -625,5 +692,52 @@ mod tests {
         // reload_config loads from disk (which may differ), but at minimum
         // it replaces the stored config without panicking.
         app.reload_config();
+    }
+
+    #[test]
+    fn selected_workspace_tab_crud_updates_selection() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        let workspace = app.selected_workspace().expect("workspace");
+        assert_eq!(workspace.tab_count(), 1);
+        assert_eq!(workspace.active_tab_index(), 0);
+
+        app.add_tab_to_selected_workspace();
+        app.add_tab_to_selected_workspace();
+
+        let workspace = app.selected_workspace().expect("workspace");
+        assert_eq!(workspace.tab_count(), 3);
+        assert_eq!(workspace.active_tab_index(), 2);
+
+        assert!(app.select_selected_workspace_tab(0));
+        let workspace = app.selected_workspace().expect("workspace");
+        assert_eq!(workspace.active_tab_index(), 0);
+
+        let _ = app.close_selected_workspace_tab();
+        let workspace = app.selected_workspace().expect("workspace");
+        assert_eq!(workspace.tab_count(), 2);
+        assert_eq!(workspace.active_tab_index(), 0);
+    }
+
+    #[test]
+    fn select_selected_workspace_tab_bounds_checked() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(!app.select_selected_workspace_tab(1));
+
+        app.add_tab_to_selected_workspace();
+        assert!(!app.select_selected_workspace_tab(99));
+        assert!(app.select_selected_workspace_tab(0));
+    }
+
+    #[test]
+    fn start_close_tab_prompts_confirmation_when_tab_is_running() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.add_tab_to_selected_workspace();
+        app.tick_terminals(80, 24);
+
+        app.start_close_selected_workspace_tab();
+        assert!(matches!(app.input_mode(), InputMode::ConfirmCloseTab));
+
+        app.cancel_input();
+        assert!(matches!(app.input_mode(), InputMode::Normal));
     }
 }

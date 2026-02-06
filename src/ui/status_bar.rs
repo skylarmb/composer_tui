@@ -38,6 +38,12 @@ fn hint_line(app: &App) -> Line<'static> {
             key_span("Esc"),
             desc_span(" cancel"),
         ]),
+        InputMode::ConfirmCloseTab => Line::from(vec![
+            key_span("Enter"),
+            desc_span(" close tab  "),
+            key_span("Esc"),
+            desc_span(" cancel"),
+        ]),
         InputMode::Error { .. } => Line::from(vec![
             key_span("Enter"),
             desc_span(" dismiss  "),
@@ -82,6 +88,12 @@ fn sidebar_hints() -> Line<'static> {
         desc_span(" navigate  "),
         key_span("Enter"),
         desc_span(" focus terminal  "),
+        key_span("Ctrl+T"),
+        desc_span(" new tab  "),
+        key_span("Ctrl+W"),
+        desc_span(" close tab  "),
+        key_span("Alt+1-9"),
+        desc_span(" switch tab  "),
         key_span("n"),
         desc_span(" new  "),
         key_span("d"),
@@ -100,6 +112,8 @@ fn sidebar_hints() -> Line<'static> {
 /// Hints shown when the main panel (terminal) is focused.
 fn main_hints() -> Line<'static> {
     Line::from(vec![
+        key_span("Alt+1-9"),
+        desc_span(" switch tab  "),
         key_span("Shift+PgUp/PgDn"),
         desc_span(" scroll  "),
         key_span("Ctrl+O"),
@@ -151,6 +165,7 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
         assert!(text.contains("Shift+PgUp/PgDn"));
+        assert!(text.contains("Alt+1-9"));
     }
 
     #[test]
@@ -166,5 +181,7 @@ mod tests {
         assert!(text.contains("settings"));
         assert!(text.contains("R"));
         assert!(text.contains("reload"));
+        assert!(text.contains("Ctrl+T"));
+        assert!(text.contains("Ctrl+W"));
     }
 }

@@ -12,6 +12,10 @@ use crate::config::config_dir;
 const STATE_FILE_NAME: &str = "state.toml";
 const STATE_VERSION: u32 = 1;
 
+/// Serialized tab data for persistence.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TabState {}
+
 /// Serialized workspace data for persistence.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WorkspaceState {
@@ -21,6 +25,10 @@ pub struct WorkspaceState {
     pub worktree_path: Option<PathBuf>,
     #[serde(default, alias = "branch")]
     pub branch_name: Option<String>,
+    #[serde(default)]
+    pub active_tab_index: usize,
+    #[serde(default)]
+    pub tabs: Option<Vec<TabState>>,
 }
 
 impl WorkspaceState {
@@ -30,7 +38,24 @@ impl WorkspaceState {
             name: name.into(),
             worktree_path: None,
             branch_name: None,
+            active_tab_index: 0,
+            tabs: Some(vec![TabState::default()]),
         }
+    }
+
+    fn normalized(mut self) -> Self {
+        let tabs = self
+            .tabs
+            .take()
+            .unwrap_or_else(|| vec![TabState::default()]);
+        let tabs = if tabs.is_empty() {
+            vec![TabState::default()]
+        } else {
+            tabs
+        };
+        self.active_tab_index = self.active_tab_index.min(tabs.len() - 1);
+        self.tabs = Some(tabs);
+        self
     }
 }
 
@@ -122,6 +147,12 @@ impl AppState {
             self.version = STATE_VERSION;
         }
 
+        self.workspaces = self
+            .workspaces
+            .into_iter()
+            .map(WorkspaceState::normalized)
+            .collect();
+
         if self.workspaces.is_empty() {
             self.selected_index = 0;
         } else if self.selected_index >= self.workspaces.len() {
@@ -199,10 +230,10 @@ mod tests {
     #[test]
     fn save_and_load_round_trip() {
         with_temp_home(|_| {
-            let workspaces = vec![
-                WorkspaceState::new("alpha", "Alpha"),
-                WorkspaceState::new("beta", "Beta"),
-            ];
+            let mut alpha = WorkspaceState::new("alpha", "Alpha");
+            alpha.tabs = Some(vec![TabState::default(), TabState::default()]);
+            alpha.active_tab_index = 1;
+            let workspaces = vec![alpha, WorkspaceState::new("beta", "Beta")];
             let state = AppState::new(workspaces, 1);
             state.save().expect("save");
 
@@ -210,6 +241,15 @@ mod tests {
             assert_eq!(loaded.workspaces.len(), 2);
             assert_eq!(loaded.workspaces[0].name, "Alpha");
             assert_eq!(loaded.workspaces[1].name, "Beta");
+            assert_eq!(loaded.workspaces[0].active_tab_index, 1);
+            assert_eq!(
+                loaded.workspaces[0]
+                    .tabs
+                    .as_ref()
+                    .expect("tabs should exist")
+                    .len(),
+                2
+            );
             assert_eq!(loaded.selected_index, 1);
         });
     }
@@ -219,7 +259,7 @@ mod tests {
         with_temp_home(|_| {
             let path = state_path().expect("state path");
             fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
-            fs::write(&path, "not = [toml").expect("write");
+            fs::write(&path, "this is not valid toml").expect("write");
 
             let loaded = AppState::load();
             let default = AppState::default();
@@ -240,5 +280,24 @@ mod tests {
 
         let empty = AppState::new(Vec::new(), 5);
         assert_eq!(empty.selected_index, 0);
+    }
+
+    #[test]
+    fn normalize_migrates_workspace_without_tabs() {
+        let old_state_toml = r#"
+version = 1
+selected_index = 0
+
+[[workspaces]]
+id = "1"
+name = "W1"
+"#;
+
+        let state: AppState =
+            toml::from_str(old_state_toml).expect("legacy state without tabs should deserialize");
+        let normalized = state.normalized();
+        let workspace = &normalized.workspaces[0];
+        assert_eq!(workspace.active_tab_index, 0);
+        assert_eq!(workspace.tabs.as_ref().expect("tabs").len(), 1);
     }
 }
