@@ -1,6 +1,10 @@
 //! Terminal screen buffer and ANSI escape sequence handling.
 
+use std::collections::VecDeque;
+
 use vte::{Params, Parser, Perform};
+
+const DEFAULT_SCROLLBACK_LIMIT: usize = 1000;
 
 /// A terminal color value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +57,8 @@ pub struct ScreenBuffer {
     cols: usize,
     rows: usize,
     cells: Vec<Vec<Cell>>,
+    scrollback: VecDeque<Vec<Cell>>,
+    scrollback_limit: usize,
     cursor_row: usize,
     cursor_col: usize,
     current_style: CellStyle,
@@ -66,6 +72,11 @@ pub struct ScreenBuffer {
 impl ScreenBuffer {
     /// Create an empty screen buffer with the given dimensions.
     pub fn new(cols: usize, rows: usize) -> Self {
+        Self::new_with_scrollback(cols, rows, DEFAULT_SCROLLBACK_LIMIT)
+    }
+
+    /// Create an empty screen buffer with the given dimensions and scrollback limit.
+    pub fn new_with_scrollback(cols: usize, rows: usize, scrollback_limit: usize) -> Self {
         let cols = cols.max(1);
         let rows = rows.max(1);
         let cells = (0..rows).map(|_| vec![Cell::default(); cols]).collect();
@@ -73,6 +84,8 @@ impl ScreenBuffer {
             cols,
             rows,
             cells,
+            scrollback: VecDeque::new(),
+            scrollback_limit,
             cursor_row: 0,
             cursor_col: 0,
             current_style: CellStyle::default(),
@@ -100,6 +113,16 @@ impl ScreenBuffer {
         self.rows
     }
 
+    /// Number of rows currently held in scrollback history.
+    pub fn scrollback_len(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    /// Maximum valid scroll offset from the live bottom of the terminal.
+    pub fn max_scroll_offset(&self) -> usize {
+        self.scrollback.len()
+    }
+
     /// Current cursor position as `(row, col)` (0-based).
     pub fn cursor_position(&self) -> (usize, usize) {
         (self.cursor_row, self.cursor_col)
@@ -122,6 +145,25 @@ impl ScreenBuffer {
         self.cells.get(row).map(Vec::as_slice)
     }
 
+    /// Iterate over the current viewport rows for a given scroll offset.
+    ///
+    /// `scroll_offset = 0` returns the live bottom viewport (current screen rows).
+    /// Larger offsets move the viewport upward into scrollback.
+    pub fn viewport_rows(&self, scroll_offset: usize) -> impl Iterator<Item = &[Cell]> {
+        let offset = scroll_offset.min(self.max_scroll_offset());
+        let total_rows = self.scrollback.len() + self.cells.len();
+        let start = total_rows.saturating_sub(self.rows + offset);
+        let end = (start + self.rows).min(total_rows);
+
+        (start..end).map(move |index| {
+            if index < self.scrollback.len() {
+                self.scrollback[index].as_slice()
+            } else {
+                self.cells[index - self.scrollback.len()].as_slice()
+            }
+        })
+    }
+
     /// Resize the screen while preserving top-left content where possible.
     pub fn resize(&mut self, cols: usize, rows: usize) {
         let cols = cols.max(1);
@@ -132,6 +174,9 @@ impl ScreenBuffer {
         }
 
         for row in &mut self.cells {
+            row.resize(cols, Cell::default());
+        }
+        for row in &mut self.scrollback {
             row.resize(cols, Cell::default());
         }
 
@@ -244,7 +289,8 @@ impl ScreenBuffer {
     fn scroll_up(&mut self, lines: usize) {
         let lines = lines.min(self.rows);
         for _ in 0..lines {
-            self.cells.remove(0);
+            let removed = self.cells.remove(0);
+            self.push_scrollback_line(removed);
             self.cells.push(vec![Cell::default(); self.cols]);
         }
     }
@@ -255,6 +301,17 @@ impl ScreenBuffer {
             self.cells.pop();
             self.cells.insert(0, vec![Cell::default(); self.cols]);
         }
+    }
+
+    fn push_scrollback_line(&mut self, line: Vec<Cell>) {
+        if self.scrollback_limit == 0 {
+            return;
+        }
+
+        if self.scrollback.len() >= self.scrollback_limit {
+            self.scrollback.pop_front();
+        }
+        self.scrollback.push_back(line);
     }
 
     fn set_cursor_position(&mut self, row: usize, col: usize) {
@@ -460,6 +517,10 @@ fn to_u8(value: u16) -> u8 {
 mod tests {
     use super::*;
 
+    fn cells_to_text(cells: &[Cell]) -> String {
+        cells.iter().map(|cell| cell.ch).collect()
+    }
+
     #[test]
     fn stores_multiline_content_and_scrolls() {
         let mut screen = ScreenBuffer::new(4, 2);
@@ -558,5 +619,34 @@ mod tests {
         assert_eq!(screen.row_text(2).as_deref(), Some("      "));
         assert_eq!(screen.rows(), 3);
         assert_eq!(screen.cols(), 6);
+    }
+
+    #[test]
+    fn scrollback_accumulates_scrolled_lines_with_limit() {
+        let mut screen = ScreenBuffer::new_with_scrollback(4, 2, 2);
+        screen.write(b"L1aa\r\nL2bb\r\nL3cc\r\nL4dd");
+
+        assert_eq!(screen.scrollback_len(), 2);
+
+        let top_viewport: Vec<String> = screen
+            .viewport_rows(screen.max_scroll_offset())
+            .map(cells_to_text)
+            .collect();
+        assert_eq!(top_viewport, vec!["L1aa".to_string(), "L2bb".to_string()]);
+    }
+
+    #[test]
+    fn viewport_rows_follow_scroll_offset() {
+        let mut screen = ScreenBuffer::new_with_scrollback(4, 2, 10);
+        screen.write(b"L1aa\r\nL2bb\r\nL3cc\r\nL4dd");
+
+        let live: Vec<String> = screen.viewport_rows(0).map(cells_to_text).collect();
+        assert_eq!(live, vec!["L3cc".to_string(), "L4dd".to_string()]);
+
+        let offset_one: Vec<String> = screen.viewport_rows(1).map(cells_to_text).collect();
+        assert_eq!(offset_one, vec!["L2bb".to_string(), "L3cc".to_string()]);
+
+        let clamped_top: Vec<String> = screen.viewport_rows(99).map(cells_to_text).collect();
+        assert_eq!(clamped_top, vec!["L1aa".to_string(), "L2bb".to_string()]);
     }
 }

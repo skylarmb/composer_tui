@@ -18,6 +18,7 @@ use crate::{
 struct WorkspaceTerminal {
     terminal: Terminal,
     screen: ScreenBuffer,
+    scroll_offset: usize,
     exit_status: Option<ExitStatus>,
 }
 
@@ -143,6 +144,7 @@ impl Workspace {
             self.terminal = Some(WorkspaceTerminal {
                 terminal,
                 screen,
+                scroll_offset: 0,
                 exit_status: None,
             });
             self.terminal_error = None;
@@ -160,6 +162,9 @@ impl Workspace {
         if let Some(runtime) = &mut self.terminal {
             runtime.terminal.resize(cols, rows)?;
             runtime.screen.resize(usize::from(cols), usize::from(rows));
+            runtime.scroll_offset = runtime
+                .scroll_offset
+                .min(runtime.screen.max_scroll_offset());
         }
         Ok(())
     }
@@ -172,7 +177,18 @@ impl Workspace {
 
         let output = runtime.terminal.read();
         if !output.is_empty() {
+            let previous_scrollback_len = runtime.screen.scrollback_len();
             runtime.screen.write(&output);
+            if runtime.scroll_offset > 0 {
+                let appended_lines = runtime
+                    .screen
+                    .scrollback_len()
+                    .saturating_sub(previous_scrollback_len);
+                runtime.scroll_offset = runtime
+                    .scroll_offset
+                    .saturating_add(appended_lines)
+                    .min(runtime.screen.max_scroll_offset());
+            }
         }
 
         if runtime.exit_status.is_none() {
@@ -196,6 +212,50 @@ impl Workspace {
     /// Current terminal screen snapshot.
     pub fn terminal_screen(&self) -> Option<&ScreenBuffer> {
         self.terminal.as_ref().map(|runtime| &runtime.screen)
+    }
+
+    /// Scroll the terminal viewport up by roughly one page.
+    pub fn scroll_up(&mut self) {
+        let Some(runtime) = &mut self.terminal else {
+            return;
+        };
+        let page = runtime.screen.rows().saturating_sub(1).max(1);
+        runtime.scroll_offset = runtime
+            .scroll_offset
+            .saturating_add(page)
+            .min(runtime.screen.max_scroll_offset());
+    }
+
+    /// Scroll the terminal viewport down by roughly one page.
+    pub fn scroll_down(&mut self) {
+        let Some(runtime) = &mut self.terminal else {
+            return;
+        };
+        let page = runtime.screen.rows().saturating_sub(1).max(1);
+        runtime.scroll_offset = runtime.scroll_offset.saturating_sub(page);
+    }
+
+    /// Return to the live bottom of terminal output.
+    pub fn scroll_to_bottom(&mut self) {
+        let Some(runtime) = &mut self.terminal else {
+            return;
+        };
+        runtime.scroll_offset = 0;
+    }
+
+    /// Whether this workspace is currently viewing scrollback.
+    pub fn is_scrolled(&self) -> bool {
+        self.terminal
+            .as_ref()
+            .is_some_and(|runtime| runtime.scroll_offset > 0)
+    }
+
+    /// Current terminal scroll offset (`0` = live bottom).
+    pub fn scroll_offset(&self) -> usize {
+        self.terminal
+            .as_ref()
+            .map(|runtime| runtime.scroll_offset)
+            .unwrap_or(0)
     }
 
     /// Whether terminal session has exited.
@@ -381,5 +441,58 @@ mod tests {
 
         let _ = ws_one.write_terminal_input(b"exit\r");
         let _ = ws_two.write_terminal_input(b"exit\r");
+    }
+
+    #[test]
+    fn terminal_scrollback_state_is_exposed_and_scrollable() {
+        let mut workspace = Workspace::new("1", "W1");
+        workspace
+            .ensure_terminal_started(80, 10, None)
+            .expect("start terminal");
+
+        workspace
+            .write_terminal_input(
+                b"i=1; while [ $i -le 80 ]; do echo SCROLL_TEST_$i; i=$((i+1)); done\r",
+            )
+            .expect("write command");
+
+        let mut saw_tail = false;
+        for _ in 0..120 {
+            workspace.poll_terminal().expect("poll terminal");
+            if screen_contains_token(&workspace, "SCROLL_TEST_80") {
+                saw_tail = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        assert!(saw_tail, "expected terminal output to fill scrollback");
+
+        workspace.scroll_up();
+        assert!(workspace.is_scrolled(), "workspace should report scrolled");
+        assert!(
+            workspace.scroll_offset() > 0,
+            "scroll offset should increase"
+        );
+
+        let offset_after_first_page = workspace.scroll_offset();
+        workspace.scroll_up();
+        assert!(
+            workspace.scroll_offset() >= offset_after_first_page,
+            "additional scroll up should not reduce offset"
+        );
+
+        workspace.scroll_down();
+        workspace.scroll_to_bottom();
+        assert_eq!(
+            workspace.scroll_offset(),
+            0,
+            "scroll_to_bottom should reset"
+        );
+        assert!(
+            !workspace.is_scrolled(),
+            "workspace should report live bottom"
+        );
+
+        let _ = workspace.write_terminal_input(b"exit\r");
     }
 }

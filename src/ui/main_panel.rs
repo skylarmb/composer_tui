@@ -43,12 +43,13 @@ fn border_style(focused: bool) -> Style {
 }
 
 fn workspace_lines(workspace: &crate::Workspace, focused: bool) -> Vec<Line<'static>> {
-    let show_cursor =
-        focused && matches!(workspace.terminal_state(), WorkspaceTerminalState::Running);
+    let show_cursor = focused
+        && matches!(workspace.terminal_state(), WorkspaceTerminalState::Running)
+        && !workspace.is_scrolled();
 
     let mut lines = if let Some(screen) = workspace.terminal_screen() {
         let cursor = show_cursor.then(|| screen.cursor_position());
-        screen_to_lines(screen, cursor)
+        screen_to_lines(screen, workspace.scroll_offset(), cursor)
     } else {
         let mut base = Vec::new();
         base.push(Line::from(format!("Workspace: {}", workspace.name())));
@@ -93,14 +94,13 @@ fn workspace_lines(workspace: &crate::Workspace, focused: bool) -> Vec<Line<'sta
     lines
 }
 
-fn screen_to_lines(screen: &ScreenBuffer, cursor: Option<(usize, usize)>) -> Vec<Line<'static>> {
+fn screen_to_lines(
+    screen: &ScreenBuffer,
+    scroll_offset: usize,
+    cursor: Option<(usize, usize)>,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::with_capacity(screen.rows());
-    for row in 0..screen.rows() {
-        let Some(cells) = screen.row_cells(row) else {
-            lines.push(Line::default());
-            continue;
-        };
-
+    for (row, cells) in screen.viewport_rows(scroll_offset).enumerate() {
         if cells.is_empty() {
             lines.push(Line::default());
             continue;
@@ -176,7 +176,7 @@ mod tests {
         let mut screen = ScreenBuffer::new(3, 1);
         screen.write(b"ab");
 
-        let lines = screen_to_lines(&screen, Some((0, 2)));
+        let lines = screen_to_lines(&screen, 0, Some((0, 2)));
         let cursor_span = lines[0]
             .spans
             .iter()
@@ -190,10 +190,20 @@ mod tests {
         let mut screen = ScreenBuffer::new(3, 1);
         screen.write(b"ab");
 
-        let lines = screen_to_lines(&screen, None);
+        let lines = screen_to_lines(&screen, 0, None);
         assert!(lines[0]
             .spans
             .iter()
             .all(|span| !span.style.add_modifier.contains(Modifier::REVERSED)));
+    }
+
+    #[test]
+    fn screen_lines_render_from_scrollback_when_offset_is_nonzero() {
+        let mut screen = ScreenBuffer::new(4, 2);
+        screen.write(b"L1aa\r\nL2bb\r\nL3cc\r\nL4dd");
+
+        let lines = screen_to_lines(&screen, 1, None);
+        assert_eq!(lines[0].spans[0].content.as_ref(), "L2bb");
+        assert_eq!(lines[1].spans[0].content.as_ref(), "L3cc");
     }
 }

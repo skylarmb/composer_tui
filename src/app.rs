@@ -240,6 +240,33 @@ impl App {
         }
     }
 
+    /// Scroll the selected terminal viewport up by one page.
+    pub fn scroll_selected_terminal_up(&mut self) {
+        if let Some(workspace) = self.selected_workspace_mut() {
+            workspace.scroll_up();
+        }
+    }
+
+    /// Scroll the selected terminal viewport down by one page.
+    pub fn scroll_selected_terminal_down(&mut self) {
+        if let Some(workspace) = self.selected_workspace_mut() {
+            workspace.scroll_down();
+        }
+    }
+
+    /// Return the selected terminal viewport to the live bottom.
+    pub fn scroll_selected_terminal_to_bottom(&mut self) {
+        if let Some(workspace) = self.selected_workspace_mut() {
+            workspace.scroll_to_bottom();
+        }
+    }
+
+    /// Whether the selected terminal is currently showing scrollback.
+    pub fn selected_terminal_is_scrolled(&self) -> bool {
+        self.selected_workspace()
+            .is_some_and(|workspace| workspace.is_scrolled())
+    }
+
     /// Persist the current app state to disk.
     pub fn save_state(&self) -> io::Result<()> {
         self.to_state().save()

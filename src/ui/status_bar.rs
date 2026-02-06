@@ -25,40 +25,54 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 ///
 /// Modal hints take priority over focus-based hints.
 fn hint_line(app: &App) -> Line<'static> {
-    match app.input_mode() {
-        InputMode::CreateWorkspace { .. } => {
-            return Line::from(vec![
-                key_span("Enter"),
-                desc_span(" create  "),
-                key_span("Esc"),
-                desc_span(" cancel"),
-            ]);
+    let mut line = match app.input_mode() {
+        InputMode::CreateWorkspace { .. } => Line::from(vec![
+            key_span("Enter"),
+            desc_span(" create  "),
+            key_span("Esc"),
+            desc_span(" cancel"),
+        ]),
+        InputMode::ConfirmDelete { .. } => Line::from(vec![
+            key_span("Enter"),
+            desc_span(" confirm  "),
+            key_span("Esc"),
+            desc_span(" cancel"),
+        ]),
+        InputMode::Error { .. } => Line::from(vec![
+            key_span("Enter"),
+            desc_span(" dismiss  "),
+            key_span("Esc"),
+            desc_span(" dismiss"),
+        ]),
+        InputMode::Normal => {
+            // Focus-based hints when no modal is active.
+            match app.focus() {
+                FocusArea::Sidebar => sidebar_hints(),
+                FocusArea::Main => main_hints(),
+                FocusArea::Header => header_hints(),
+            }
         }
-        InputMode::ConfirmDelete { .. } => {
-            return Line::from(vec![
-                key_span("Enter"),
-                desc_span(" confirm  "),
-                key_span("Esc"),
-                desc_span(" cancel"),
-            ]);
+    };
+
+    if let Some(workspace) = app.selected_workspace() {
+        if workspace.is_scrolled() {
+            let offset = workspace.scroll_offset();
+            let label = if offset == 1 {
+                "[+1 line]".to_string()
+            } else {
+                format!("[+{offset} lines]")
+            };
+            line.spans.push(desc_span("  "));
+            line.spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
         }
-        InputMode::Error { .. } => {
-            return Line::from(vec![
-                key_span("Enter"),
-                desc_span(" dismiss  "),
-                key_span("Esc"),
-                desc_span(" dismiss"),
-            ]);
-        }
-        InputMode::Normal => {}
     }
 
-    // Focus-based hints when no modal is active.
-    match app.focus() {
-        FocusArea::Sidebar => sidebar_hints(),
-        FocusArea::Main => main_hints(),
-        FocusArea::Header => header_hints(),
-    }
+    line
 }
 
 /// Hints shown when the sidebar is focused.
@@ -82,6 +96,8 @@ fn sidebar_hints() -> Line<'static> {
 /// Hints shown when the main panel (terminal) is focused.
 fn main_hints() -> Line<'static> {
     Line::from(vec![
+        key_span("Shift+PgUp/PgDn"),
+        desc_span(" scroll  "),
         key_span("Ctrl+O"),
         desc_span(" sidebar  "),
         key_span("Ctrl+C"),
@@ -112,4 +128,24 @@ fn key_span(text: &str) -> Span<'static> {
 /// Styled span for a description label (gray).
 fn desc_span(text: &str) -> Span<'static> {
     Span::styled(text.to_string(), Style::default().fg(Color::Gray))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppState;
+
+    #[test]
+    fn main_hints_include_scrollback_keys() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.focus_right();
+
+        let line = hint_line(&app);
+        let text = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert!(text.contains("Shift+PgUp/PgDn"));
+    }
 }

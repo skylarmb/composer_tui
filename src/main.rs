@@ -153,6 +153,24 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_main_focus_key_event(app: &mut App, key: KeyEvent) {
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        match key.code {
+            KeyCode::PageUp => {
+                app.scroll_selected_terminal_up();
+                return;
+            }
+            KeyCode::PageDown => {
+                app.scroll_selected_terminal_down();
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    if app.selected_terminal_is_scrolled() {
+        app.scroll_selected_terminal_to_bottom();
+    }
+
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'o') => {
@@ -297,6 +315,18 @@ mod tests {
         handle_key_event(&mut app, key(KeyCode::Char('o'), KeyModifiers::CONTROL));
         assert!(!app.is_fullscreen());
         assert_eq!(app.focus(), FocusArea::Sidebar);
+    }
+
+    #[test]
+    fn shift_page_keys_are_consumed_for_scrollback() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        app.focus_right();
+
+        handle_key_event(&mut app, key(KeyCode::PageUp, KeyModifiers::SHIFT));
+        assert_eq!(app.focus(), FocusArea::Main);
+
+        handle_key_event(&mut app, key(KeyCode::PageDown, KeyModifiers::SHIFT));
+        assert_eq!(app.focus(), FocusArea::Main);
     }
 
     #[test]
