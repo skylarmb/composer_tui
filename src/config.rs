@@ -87,8 +87,7 @@ impl Config {
         let dir = config_dir()?;
         ensure_config_dir(&dir)?;
         let path = config_path()?;
-        let contents = toml::to_string_pretty(self)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        let contents = toml::to_string_pretty(self).map_err(io::Error::other)?;
         fs::write(path, contents)?;
         Ok(())
     }

@@ -19,6 +19,8 @@ pub struct WorkspaceState {
     pub name: String,
     #[serde(default, alias = "path")]
     pub worktree_path: Option<PathBuf>,
+    #[serde(default, alias = "branch")]
+    pub branch_name: Option<String>,
 }
 
 impl WorkspaceState {
@@ -27,6 +29,7 @@ impl WorkspaceState {
             id: id.into(),
             name: name.into(),
             worktree_path: None,
+            branch_name: None,
         }
     }
 }
@@ -99,8 +102,7 @@ impl AppState {
         let dir = config_dir()?;
         ensure_state_dir(&dir)?;
         let path = state_path()?;
-        let contents = toml::to_string_pretty(self)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        let contents = toml::to_string_pretty(self).map_err(io::Error::other)?;
         fs::write(path, contents)?;
         Ok(())
     }

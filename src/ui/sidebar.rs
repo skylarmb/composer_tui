@@ -22,11 +22,15 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         .iter()
         .enumerate()
         .map(|(i, ws)| {
+            let label = match ws.branch_name() {
+                Some(branch) => format!("{} ({})", ws.name(), branch),
+                None => ws.name().to_string(),
+            };
             let content = if i == app.selected_index() {
                 // Selected item gets brackets and reverse style
-                Line::from(format!("[{}]", ws.name())).reversed()
+                Line::from(format!("[{}]", label)).reversed()
             } else {
-                Line::from(format!(" {} ", ws.name()))
+                Line::from(format!(" {} ", label))
             };
             ListItem::new(content)
         })

@@ -6,13 +6,13 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
-use composer_tui::{ui, App, Config};
+use composer_tui::{ui, App, Config, InputMode};
 
 fn main() -> Result<(), Box<dyn Error>> {
     install_panic_hook();
@@ -39,26 +39,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         // Handle input events
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
-                let focus_modifier = key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
-
-                if focus_modifier {
-                    match key.code {
-                        KeyCode::Char('h') => app.focus_left(),
-                        KeyCode::Char('l') => app.focus_right(),
-                        KeyCode::Char('k') => app.focus_up(),
-                        KeyCode::Char('j') => app.focus_down(),
-                        _ => {}
-                    }
-                } else {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => app.quit(),
-                        KeyCode::Char('j') | KeyCode::Down => app.select_next(),
-                        KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
-                        _ => {}
-                    }
-                }
+                handle_key_event(&mut app, key);
             }
         }
 
@@ -99,4 +80,48 @@ fn install_panic_hook() {
 fn cleanup_terminal_on_panic() -> io::Result<()> {
     disable_raw_mode()?;
     execute!(stdout(), LeaveAlternateScreen, Show)
+}
+
+fn handle_key_event(app: &mut App, key: KeyEvent) {
+    if app.is_modal_active() {
+        handle_modal_key_event(app, key);
+        return;
+    }
+
+    let focus_modifier = key
+        .modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+    if focus_modifier {
+        match key.code {
+            KeyCode::Char('h') => app.focus_left(),
+            KeyCode::Char('l') => app.focus_right(),
+            KeyCode::Char('k') => app.focus_up(),
+            KeyCode::Char('j') => app.focus_down(),
+            _ => {}
+        }
+        return;
+    }
+
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => app.quit(),
+        KeyCode::Char('j') | KeyCode::Down => app.select_next(),
+        KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+        KeyCode::Char('n') => app.start_create_workspace(),
+        KeyCode::Char('d') => app.start_delete_workspace(),
+        _ => {}
+    }
+}
+
+fn handle_modal_key_event(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.cancel_input(),
+        KeyCode::Enter => app.confirm_input(),
+        KeyCode::Backspace => app.pop_input_char(),
+        KeyCode::Char(ch) => {
+            if matches!(app.input_mode(), InputMode::CreateWorkspace { .. }) {
+                app.push_input_char(ch);
+            }
+        }
+        _ => {}
+    }
 }
