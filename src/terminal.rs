@@ -41,6 +41,8 @@ impl Terminal {
 
         let mut cmd = CommandBuilder::new(shell_program);
         cmd.cwd(cwd.as_ref());
+        // Avoid zsh's end-of-line marker (`%`) in embedded terminal output.
+        cmd.env("PROMPT_EOL_MARK", "");
 
         let child = pair.slave.spawn_command(cmd).map_err(to_io_error)?;
         drop(pair.slave);

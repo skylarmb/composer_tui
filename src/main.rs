@@ -6,7 +6,7 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -95,6 +95,10 @@ fn cleanup_terminal_on_panic() -> io::Result<()> {
 }
 
 fn handle_key_event(app: &mut App, key: KeyEvent) {
+    if matches!(key.kind, KeyEventKind::Release) {
+        return;
+    }
+
     if app.is_modal_active() {
         handle_modal_key_event(app, key);
         return;
@@ -253,6 +257,18 @@ mod tests {
             key_to_terminal_bytes(key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Some(vec![0x03])
         );
+    }
+
+    #[test]
+    fn key_release_events_are_ignored() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        assert_eq!(app.focus(), FocusArea::Sidebar);
+
+        handle_key_event(
+            &mut app,
+            KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Release),
+        );
+        assert_eq!(app.focus(), FocusArea::Sidebar);
     }
 }
 
