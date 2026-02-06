@@ -124,11 +124,14 @@ impl Workspace {
         let cols = cols.max(1);
         let rows = rows.max(1);
 
-        if self.terminal.is_none() {
-            if self.terminal_error.is_some() {
-                return Ok(());
-            }
+        let needs_spawn = self
+            .terminal
+            .as_ref()
+            .map(|runtime| runtime.exit_status.is_some())
+            .unwrap_or(true);
 
+        if needs_spawn {
+            self.terminal.take();
             let cwd = self.terminal_cwd()?;
             let terminal = Terminal::spawn(cwd, shell)?;
             terminal.resize(cols, rows)?;
@@ -331,6 +334,15 @@ mod tests {
         assert!(
             workspace.terminal_has_exited(),
             "terminal should report exited after shell exit"
+        );
+
+        workspace
+            .ensure_terminal_started(80, 24, None)
+            .expect("restart terminal");
+        workspace.poll_terminal().expect("poll restarted terminal");
+        assert!(
+            !workspace.terminal_has_exited(),
+            "terminal should be running again after restart"
         );
     }
 

@@ -7,7 +7,7 @@ use std::{env, io};
 
 use crate::{
     state::{AppState, WorkspaceState},
-    workspace::{Workspace, WorkspaceTerminalState},
+    workspace::Workspace,
     worktree::WorktreeManager,
 };
 
@@ -196,17 +196,6 @@ impl App {
             if let Err(err) = workspace.poll_terminal() {
                 workspace.set_terminal_error(format!("terminal I/O error: {err}"));
             }
-        }
-
-        if self.focus == FocusArea::Main
-            && self.selected_workspace().is_some_and(|workspace| {
-                matches!(
-                    workspace.terminal_state(),
-                    WorkspaceTerminalState::Exited | WorkspaceTerminalState::Failed
-                )
-            })
-        {
-            self.focus_left();
         }
     }
 
