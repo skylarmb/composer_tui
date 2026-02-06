@@ -21,6 +21,7 @@ pub enum GhCiStatus {
 /// Cached `gh pr view` status for a workspace branch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GhWorkspaceStatus {
+    pub number: u64,
     pub pr_state: String,
     pub title: String,
     pub ci_status: GhCiStatus,
@@ -182,9 +183,9 @@ fn fetch_gh_status(target: &GhWorkspaceTarget) -> Result<Option<GhWorkspaceStatu
         .arg("view")
         .arg(&target.branch_name)
         .arg("--json")
-        .arg("state,title,statusCheckRollup")
+        .arg("number,state,title,statusCheckRollup")
         .arg("--template")
-        .arg("{{.state}}\n{{.title}}\n{{range .statusCheckRollup}}{{if .conclusion}}{{.conclusion}}{{else}}{{.state}}{{end}}\n{{end}}")
+        .arg("{{.number}}\n{{.state}}\n{{.title}}\n{{range .statusCheckRollup}}{{if .conclusion}}{{.conclusion}}{{else}}{{.state}}{{end}}\n{{end}}")
         .current_dir(&target.cwd)
         .output()
         .map_err(|err| match err.kind() {
@@ -203,6 +204,7 @@ fn fetch_gh_status(target: &GhWorkspaceTarget) -> Result<Option<GhWorkspaceStatu
 
 fn parse_template_output(raw: &str) -> Option<GhWorkspaceStatus> {
     let mut lines = raw.lines();
+    let number = lines.next()?.trim().parse::<u64>().ok()?;
     let pr_state = lines.next()?.trim().to_ascii_uppercase();
     if pr_state.is_empty() {
         return None;
@@ -215,6 +217,7 @@ fn parse_template_output(raw: &str) -> Option<GhWorkspaceStatus> {
         .collect();
 
     Some(GhWorkspaceStatus {
+        number,
         pr_state,
         title,
         ci_status: aggregate_ci_status(&rollup_states),
@@ -262,8 +265,9 @@ mod tests {
 
     #[test]
     fn parse_template_output_reads_pr_state_title_and_checks() {
-        let raw = "OPEN\nPhase 17 PR\nSUCCESS\nPENDING\n";
+        let raw = "1234\nOPEN\nPhase 17 PR\nSUCCESS\nPENDING\n";
         let parsed = parse_template_output(raw).expect("parsed status");
+        assert_eq!(parsed.number, 1234);
         assert_eq!(parsed.pr_state, "OPEN");
         assert_eq!(parsed.title, "Phase 17 PR");
         assert_eq!(parsed.ci_status, GhCiStatus::Pending);

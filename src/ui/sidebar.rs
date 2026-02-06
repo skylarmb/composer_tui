@@ -149,8 +149,13 @@ mod tests {
     fn workspace_line_includes_git_and_pr_markers() {
         let mut workspace =
             Workspace::with_worktree("1", "W1", PathBuf::from("/tmp/w1"), "feature/w1");
-        workspace.set_git_status(Some(GitWorkspaceStatus { dirty: true }));
+        workspace.set_git_status(Some(GitWorkspaceStatus {
+            dirty: true,
+            unstaged_added: 2,
+            unstaged_deleted: 1,
+        }));
         workspace.set_gh_status(Some(GhWorkspaceStatus {
+            number: 1234,
             pr_state: "OPEN".to_string(),
             title: "PR title".to_string(),
             ci_status: GhCiStatus::Passing,

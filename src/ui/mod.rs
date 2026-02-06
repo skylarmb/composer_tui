@@ -15,14 +15,12 @@ use ratatui::{
 
 use crate::{App, FocusArea, InputMode};
 
-// Temporarily disable the top bar while keeping header code available.
-const SHOW_TOP_BAR: bool = false;
-const TOP_BAR_HEIGHT: u16 = if SHOW_TOP_BAR { 3 } else { 0 };
+const TOP_BAR_HEIGHT: u16 = 3;
 
 /// Render the entire UI layout.
 ///
 /// Layout structure:
-/// - Vertical split: Header (optional) | Body | StatusBar (1 row)
+/// - Vertical split: Header | Body | StatusBar (1 row)
 /// - Horizontal split of Body: Sidebar (configurable width) | MainPanel
 /// - When fullscreen: sidebar is hidden, main panel takes full body width
 pub fn render(frame: &mut Frame, app: &App) {
@@ -31,21 +29,20 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     // Vertical split: Header | Body | StatusBar
     let chunks = Layout::vertical([
-        Constraint::Length(TOP_BAR_HEIGHT), // Header (disabled for now)
+        Constraint::Length(TOP_BAR_HEIGHT), // Header
         Constraint::Min(0),                 // Body (remaining space)
         Constraint::Length(1),              // Status bar (single row, no border)
     ])
     .split(frame.area());
 
     let focus = app.focus();
-    if SHOW_TOP_BAR {
-        header::render(
-            frame,
-            chunks[0],
-            focus == FocusArea::Header,
-            focused_border_color,
-        );
-    }
+    header::render(
+        frame,
+        chunks[0],
+        app,
+        focus == FocusArea::Header,
+        focused_border_color,
+    );
 
     if app.is_fullscreen() {
         // Fullscreen: main panel takes entire body width (no sidebar).
@@ -210,22 +207,22 @@ mod tests {
     #[test]
     fn main_panel_terminal_size_accounts_for_status_bar() {
         // 80x24 terminal, non-fullscreen, sidebar_width=20:
-        // Body height = 24 - 0 (header disabled) - 1 (status bar) = 23
+        // Body height = 24 - 3 (header) - 1 (status bar) = 20
         // Main width = 80 - 20 (sidebar) = 60, inner = 60 - 2 = 58
-        // Main height inner = 23 - 2 = 21
+        // Main height inner = 20 - 2 = 18
         let (cols, rows) = main_panel_terminal_size(80, 24, false, 20);
         assert_eq!(cols, 58);
-        assert_eq!(rows, 21);
+        assert_eq!(rows, 18);
     }
 
     #[test]
     fn main_panel_terminal_size_fullscreen_uses_full_width() {
         // Fullscreen: no sidebar, sidebar_width ignored
         // Main width = 80, inner = 80 - 2 = 78
-        // Height same as above = 21
+        // Height same as above = 18
         let (cols, rows) = main_panel_terminal_size(80, 24, true, 20);
         assert_eq!(cols, 78);
-        assert_eq!(rows, 21);
+        assert_eq!(rows, 18);
     }
 
     #[test]

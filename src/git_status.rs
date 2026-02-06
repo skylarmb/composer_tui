@@ -14,6 +14,8 @@ use git2::{Repository, Status, StatusOptions};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitWorkspaceStatus {
     pub dirty: bool,
+    pub unstaged_added: usize,
+    pub unstaged_deleted: usize,
 }
 
 /// Input target describing which workspace path should be polled.
@@ -136,7 +138,25 @@ fn read_git_status(path: &Path) -> Option<GitWorkspaceStatus> {
         .iter()
         .any(|entry| entry.status() != Status::CURRENT);
 
-    Some(GitWorkspaceStatus { dirty })
+    let (unstaged_added, unstaged_deleted) = unstaged_line_counts(&repo).unwrap_or((0, 0));
+
+    Some(GitWorkspaceStatus {
+        dirty,
+        unstaged_added,
+        unstaged_deleted,
+    })
+}
+
+fn unstaged_line_counts(repo: &Repository) -> Option<(usize, usize)> {
+    let mut diff_options = git2::DiffOptions::new();
+    diff_options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true);
+    let diff = repo
+        .diff_index_to_workdir(None, Some(&mut diff_options))
+        .ok()?;
+    let stats = diff.stats().ok()?;
+    Some((stats.insertions(), stats.deletions()))
 }
 
 #[cfg(test)]
@@ -182,10 +202,16 @@ mod tests {
 
         let clean = read_git_status(&temp).expect("clean status");
         assert!(!clean.dirty, "fresh repo should be clean");
+        assert_eq!(clean.unstaged_added, 0);
+        assert_eq!(clean.unstaged_deleted, 0);
 
         fs::write(temp.join("README.md"), "changed\n").expect("mutate file");
         let dirty = read_git_status(&temp).expect("dirty status");
         assert!(dirty.dirty, "modified tracked file should be dirty");
+        assert!(
+            dirty.unstaged_added > 0 || dirty.unstaged_deleted > 0,
+            "dirty file should produce non-zero line stats"
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }
