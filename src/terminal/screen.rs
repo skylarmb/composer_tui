@@ -67,6 +67,8 @@ pub struct ScreenBuffer {
     /// The actual wrap (CR+LF) only happens when the *next* printable character
     /// arrives, matching real terminal behavior (DEC VT220 spec).
     wrap_pending: bool,
+    /// Bytes to send back to the PTY in response to terminal capability queries.
+    response_bytes: Vec<u8>,
 }
 
 impl ScreenBuffer {
@@ -91,16 +93,25 @@ impl ScreenBuffer {
             current_style: CellStyle::default(),
             parser: Parser::new(),
             wrap_pending: false,
+            response_bytes: Vec::new(),
         }
     }
 
     /// Parse terminal bytes and apply them to the screen.
     pub fn write(&mut self, data: &[u8]) {
+        let _ = self.write_with_responses(data);
+    }
+
+    /// Parse terminal bytes and return any response bytes that should be sent
+    /// back to the PTY (for example, CSI cursor-position queries).
+    pub fn write_with_responses(&mut self, data: &[u8]) -> Vec<u8> {
+        self.response_bytes.clear();
         let mut parser = std::mem::take(&mut self.parser);
         for &byte in data {
             parser.advance(self, byte);
         }
         self.parser = parser;
+        std::mem::take(&mut self.response_bytes)
     }
 
     /// Current screen width (columns).
@@ -381,6 +392,10 @@ impl ScreenBuffer {
             }
         }
     }
+
+    fn queue_response(&mut self, bytes: &[u8]) {
+        self.response_bytes.extend_from_slice(bytes);
+    }
 }
 
 impl Perform for ScreenBuffer {
@@ -424,7 +439,7 @@ impl Perform for ScreenBuffer {
 
     fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
-    fn csi_dispatch(&mut self, params: &Params, _: &[u8], _: bool, action: char) {
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _: bool, action: char) {
         // Any CSI sequence that moves the cursor or modifies the screen
         // clears the deferred wrap state.
         match action {
@@ -481,6 +496,28 @@ impl Perform for ScreenBuffer {
                 self.scroll_down(csi_count(params, 1));
             }
             'm' => self.apply_sgr(params),
+            'n' => {
+                // DSR (Device Status Report) queries.
+                // - CSI 5 n  => "terminal OK"
+                // - CSI 6 n  => report cursor position (row;col are 1-based)
+                // Some apps send private DSR as CSI ? 6 n.
+                let query = csi_param(params, 0, 0);
+                let is_private = intermediates.contains(&b'?');
+                match query {
+                    5 => self.queue_response(b"\x1b[0n"),
+                    6 => {
+                        let row = self.cursor_row + 1;
+                        let col = self.cursor_col + 1;
+                        let response = if is_private {
+                            format!("\x1b[?{row};{col}R")
+                        } else {
+                            format!("\x1b[{row};{col}R")
+                        };
+                        self.queue_response(response.as_bytes());
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -648,5 +685,21 @@ mod tests {
 
         let clamped_top: Vec<String> = screen.viewport_rows(99).map(cells_to_text).collect();
         assert_eq!(clamped_top, vec!["L1aa".to_string(), "L2bb".to_string()]);
+    }
+
+    #[test]
+    fn responds_to_dsr_cursor_position_query() {
+        let mut screen = ScreenBuffer::new(10, 3);
+        screen.write(b"abc");
+        let response = screen.write_with_responses(b"\x1b[6n");
+        assert_eq!(response, b"\x1b[1;4R".to_vec());
+    }
+
+    #[test]
+    fn responds_to_private_dsr_cursor_position_query() {
+        let mut screen = ScreenBuffer::new(10, 3);
+        screen.write(b"abc");
+        let response = screen.write_with_responses(b"\x1b[?6n");
+        assert_eq!(response, b"\x1b[?1;4R".to_vec());
     }
 }

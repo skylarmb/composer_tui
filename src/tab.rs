@@ -119,7 +119,10 @@ impl Tab {
         let output = runtime.terminal.read();
         if !output.is_empty() {
             let previous_scrollback_len = runtime.screen.scrollback_len();
-            runtime.screen.write(&output);
+            let responses = runtime.screen.write_with_responses(&output);
+            if !responses.is_empty() {
+                runtime.terminal.write(&responses)?;
+            }
             if runtime.scroll_offset > 0 {
                 let appended_lines = runtime
                     .screen
