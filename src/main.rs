@@ -6,7 +6,10 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -36,7 +39,8 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
 
     loop {
         let size = terminal.size()?;
-        let (cols, rows) = ui::main_panel_terminal_size(size.width, size.height);
+        let (cols, rows) =
+            ui::main_panel_terminal_size(size.width, size.height, app.is_fullscreen());
         app.tick_terminals(cols, rows);
 
         // Render the UI
@@ -45,8 +49,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         // Handle input events
         if event::poll(EVENT_POLL_INTERVAL)? {
             loop {
-                if let Event::Key(key) = event::read()? {
-                    handle_key_event(&mut app, key);
+                match event::read()? {
+                    Event::Key(key) => handle_key_event(&mut app, key),
+                    Event::Mouse(mouse) => {
+                        handle_mouse_event(&mut app, mouse, size.width, size.height);
+                    }
+                    _ => {}
                 }
 
                 if !event::poll(Duration::from_millis(0))? {
@@ -69,14 +77,19 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, Hide)?;
+    execute!(stdout, EnterAlternateScreen, Hide, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
 }
 
 fn cleanup_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, Show)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        Show,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -91,7 +104,7 @@ fn install_panic_hook() {
 
 fn cleanup_terminal_on_panic() -> io::Result<()> {
     disable_raw_mode()?;
-    execute!(stdout(), LeaveAlternateScreen, Show)
+    execute!(stdout(), LeaveAlternateScreen, Show, DisableMouseCapture)
 }
 
 fn handle_key_event(app: &mut App, key: KeyEvent) {
@@ -134,6 +147,7 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) {
         KeyCode::Enter => app.focus_right(),
         KeyCode::Char('n') => app.start_create_workspace(),
         KeyCode::Char('d') => app.start_delete_workspace(),
+        KeyCode::Char('z') => app.toggle_fullscreen(),
         _ => {}
     }
 }
@@ -142,6 +156,7 @@ fn handle_main_focus_key_event(app: &mut App, key: KeyEvent) {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'o') => {
+                app.exit_fullscreen();
                 app.focus_left();
                 return;
             }
@@ -260,6 +275,31 @@ mod tests {
     }
 
     #[test]
+    fn z_toggles_fullscreen_from_sidebar() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        assert!(!app.is_fullscreen());
+
+        handle_key_event(&mut app, key(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert!(app.is_fullscreen());
+
+        handle_key_event(&mut app, key(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert!(!app.is_fullscreen());
+    }
+
+    #[test]
+    fn ctrl_o_exits_fullscreen_and_focuses_sidebar() {
+        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        app.toggle_fullscreen();
+        app.focus_right(); // focus main
+        assert!(app.is_fullscreen());
+        assert_eq!(app.focus(), FocusArea::Main);
+
+        handle_key_event(&mut app, key(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert!(!app.is_fullscreen());
+        assert_eq!(app.focus(), FocusArea::Sidebar);
+    }
+
+    #[test]
     fn key_release_events_are_ignored() {
         let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
         assert_eq!(app.focus(), FocusArea::Sidebar);
@@ -270,6 +310,44 @@ mod tests {
         );
         assert_eq!(app.focus(), FocusArea::Sidebar);
     }
+}
+
+/// Handle mouse click events for focus and workspace selection.
+fn handle_mouse_event(app: &mut App, mouse: MouseEvent, width: u16, height: u16) {
+    // Only respond to left button presses (ignore drags, scrolls, releases).
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return;
+    }
+
+    // Ignore mouse clicks while a modal is active.
+    if app.is_modal_active() {
+        return;
+    }
+
+    let (_header_rect, sidebar_rect, main_rect, _status_rect) =
+        ui::layout_rects(width, height, app.is_fullscreen());
+
+    let col = mouse.column;
+    let row = mouse.row;
+
+    if let Some(sidebar) = sidebar_rect {
+        if rect_contains(sidebar, col, row) {
+            // Workspace items start below the sidebar top border (sidebar.y + 1).
+            let inner_row = row.saturating_sub(sidebar.y + 1) as usize;
+            app.set_selected_index(inner_row);
+            app.focus_left();
+            return;
+        }
+    }
+
+    if rect_contains(main_rect, col, row) {
+        app.focus_right();
+    }
+}
+
+/// Check whether a point (col, row) falls within a `Rect`.
+fn rect_contains(rect: ratatui::layout::Rect, col: u16, row: u16) -> bool {
+    col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
 }
 
 fn handle_modal_key_event(app: &mut App, key: KeyEvent) {

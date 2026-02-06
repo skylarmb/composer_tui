@@ -90,14 +90,6 @@ fn workspace_lines(workspace: &crate::Workspace, focused: bool) -> Vec<Line<'sta
         WorkspaceTerminalState::NotStarted | WorkspaceTerminalState::Running => {}
     }
 
-    if focused {
-        lines.push(Line::from(""));
-        lines.push(Line::from("Ctrl+O: sidebar | Ctrl+C: interrupt"));
-    } else {
-        lines.push(Line::from(""));
-        lines.push(Line::from("Enter: focus terminal"));
-    }
-
     lines
 }
 

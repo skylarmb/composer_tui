@@ -20,6 +20,8 @@ pub struct App {
     focus: FocusArea,
     input_mode: InputMode,
     worktree_manager: Option<WorktreeManager>,
+    /// Whether the main panel is fullscreen (sidebar hidden).
+    fullscreen: bool,
 }
 
 impl App {
@@ -48,6 +50,7 @@ impl App {
             focus: FocusArea::Sidebar,
             input_mode: InputMode::Normal,
             worktree_manager,
+            fullscreen: false,
         }
     }
 
@@ -169,6 +172,21 @@ impl App {
         self.focus = FocusArea::Main;
     }
 
+    /// Whether the main panel is in fullscreen mode (sidebar hidden).
+    pub fn is_fullscreen(&self) -> bool {
+        self.fullscreen
+    }
+
+    /// Toggle fullscreen mode on/off.
+    pub fn toggle_fullscreen(&mut self) {
+        self.fullscreen = !self.fullscreen;
+    }
+
+    /// Exit fullscreen mode (no-op if not fullscreen).
+    pub fn exit_fullscreen(&mut self) {
+        self.fullscreen = false;
+    }
+
     /// All configured workspaces.
     pub fn workspaces(&self) -> &[Workspace] {
         &self.workspaces
@@ -182,6 +200,19 @@ impl App {
     /// Currently selected workspace.
     pub fn selected_workspace(&self) -> Option<&Workspace> {
         self.workspaces.get(self.selected_index)
+    }
+
+    /// Set the selected workspace index with bounds checking.
+    ///
+    /// Returns `true` if the selection changed, `false` if out of bounds
+    /// or the same as the current index.
+    pub fn set_selected_index(&mut self, index: usize) -> bool {
+        if self.workspaces.is_empty() || index >= self.workspaces.len() {
+            return false;
+        }
+        let changed = self.selected_index != index;
+        self.selected_index = index;
+        changed
     }
 
     /// Ensure selected workspace terminal is running and poll output.
@@ -443,5 +474,58 @@ mod tests {
         app.start_delete_workspace();
         app.cancel_input();
         assert!(matches!(app.input_mode(), InputMode::Normal));
+    }
+
+    #[test]
+    fn set_selected_index_within_bounds() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(app.set_selected_index(2));
+        assert_eq!(app.selected_index(), 2);
+    }
+
+    #[test]
+    fn set_selected_index_out_of_bounds_returns_false() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(!app.set_selected_index(99));
+        assert_eq!(app.selected_index(), 0); // unchanged
+    }
+
+    #[test]
+    fn set_selected_index_empty_workspaces_returns_false() {
+        let state = AppState::new(Vec::new(), 0);
+        let mut app = App::from_state_with_manager(state, None);
+        assert!(!app.set_selected_index(0));
+    }
+
+    #[test]
+    fn set_selected_index_same_value_returns_false() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(!app.set_selected_index(0)); // already at 0
+    }
+
+    #[test]
+    fn toggle_fullscreen_flips_state() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(!app.is_fullscreen());
+        app.toggle_fullscreen();
+        assert!(app.is_fullscreen());
+        app.toggle_fullscreen();
+        assert!(!app.is_fullscreen());
+    }
+
+    #[test]
+    fn exit_fullscreen_clears_flag() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.toggle_fullscreen();
+        assert!(app.is_fullscreen());
+        app.exit_fullscreen();
+        assert!(!app.is_fullscreen());
+    }
+
+    #[test]
+    fn exit_fullscreen_is_idempotent() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.exit_fullscreen(); // already false
+        assert!(!app.is_fullscreen());
     }
 }
