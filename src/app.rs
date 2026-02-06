@@ -107,11 +107,7 @@ impl App {
     }
 
     fn to_state(&self) -> AppState {
-        let workspaces = self
-            .workspaces
-            .iter()
-            .map(WorkspaceState::from)
-            .collect();
+        let workspaces = self.workspaces.iter().map(WorkspaceState::from).collect();
         AppState::new(workspaces, self.selected_index)
     }
 }

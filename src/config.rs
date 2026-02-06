@@ -1,8 +1,7 @@
 //! Configuration management for composer_tui.
 
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -23,12 +22,12 @@ pub struct Config {
 /// Returns the configuration directory path (`~/.config/composer_tui/`).
 pub fn config_dir() -> io::Result<PathBuf> {
     let base_dirs = BaseDirs::new().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, "could not determine home directory")
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine home directory",
+        )
     })?;
-    Ok(base_dirs
-        .home_dir()
-        .join(".config")
-        .join(CONFIG_DIR_NAME))
+    Ok(base_dirs.home_dir().join(".config").join(CONFIG_DIR_NAME))
 }
 
 fn config_path() -> io::Result<PathBuf> {

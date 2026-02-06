@@ -1,8 +1,7 @@
 //! Persistent application state stored on disk.
 
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -151,8 +150,7 @@ fn default_workspaces() -> Vec<WorkspaceState> {
 mod tests {
     use super::*;
     use std::{
-        env,
-        fs,
+        env, fs,
         path::PathBuf,
         process,
         sync::Mutex,
