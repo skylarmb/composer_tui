@@ -51,7 +51,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
             app.is_fullscreen(),
             sidebar_width,
         );
-        app.tick_terminals(cols, rows);
+        app.tick(cols, rows);
 
         // Render the UI
         terminal.draw(|frame| ui::render(frame, &app))?;
@@ -375,13 +375,18 @@ fn open_settings_editor(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -
 mod tests {
     use super::*;
 
+    fn test_app() -> App {
+        std::env::set_var("COMPOSER_TUI_DISABLE_STATE_SAVE", "1");
+        App::from_state_with_manager(composer_tui::AppState::default(), None)
+    }
+
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, modifiers)
     }
 
     #[test]
     fn enter_focuses_main_panel_from_sidebar() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         assert_eq!(app.focus(), FocusArea::Sidebar);
 
         handle_key_event(&mut app, key(KeyCode::Enter, KeyModifiers::NONE));
@@ -390,7 +395,7 @@ mod tests {
 
     #[test]
     fn ctrl_o_escapes_main_focus_to_sidebar() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         app.focus_right();
         assert_eq!(app.focus(), FocusArea::Main);
 
@@ -416,7 +421,7 @@ mod tests {
 
     #[test]
     fn z_toggles_fullscreen_from_sidebar() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         assert!(!app.is_fullscreen());
 
         handle_key_event(&mut app, key(KeyCode::Char('z'), KeyModifiers::NONE));
@@ -428,7 +433,7 @@ mod tests {
 
     #[test]
     fn ctrl_o_exits_fullscreen_and_focuses_sidebar() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         app.toggle_fullscreen();
         app.focus_right(); // focus main
         assert!(app.is_fullscreen());
@@ -441,7 +446,7 @@ mod tests {
 
     #[test]
     fn shift_page_keys_are_consumed_for_scrollback() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         app.focus_right();
 
         handle_key_event(&mut app, key(KeyCode::PageUp, KeyModifiers::SHIFT));
@@ -453,7 +458,7 @@ mod tests {
 
     #[test]
     fn key_release_events_are_ignored() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         assert_eq!(app.focus(), FocusArea::Sidebar);
 
         handle_key_event(
@@ -465,14 +470,14 @@ mod tests {
 
     #[test]
     fn s_key_returns_editor_action() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         let action = handle_key_event(&mut app, key(KeyCode::Char('S'), KeyModifiers::NONE));
         assert!(matches!(action, Some(EditorAction::OpenSettings)));
     }
 
     #[test]
     fn r_key_reloads_config() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         // R should not panic and should return no editor action.
         let action = handle_key_event(&mut app, key(KeyCode::Char('R'), KeyModifiers::NONE));
         assert!(action.is_none());
@@ -480,9 +485,14 @@ mod tests {
 
     #[test]
     fn alt_number_switches_tabs_from_main_focus() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         app.add_tab_to_selected_workspace();
         app.add_tab_to_selected_workspace();
+        assert!(
+            matches!(app.input_mode(), InputMode::Normal),
+            "tab setup should keep app in normal mode: {:?}",
+            app.input_mode()
+        );
         app.focus_right();
 
         let action = handle_key_event(&mut app, key(KeyCode::Char('1'), KeyModifiers::ALT));
@@ -506,12 +516,16 @@ mod tests {
 
     #[test]
     fn ctrl_t_and_ctrl_w_manage_tabs_from_sidebar() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         assert_eq!(app.focus(), FocusArea::Sidebar);
         assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 1);
 
         handle_key_event(&mut app, key(KeyCode::Char('t'), KeyModifiers::CONTROL));
         assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 2);
+        assert!(
+            matches!(app.input_mode(), InputMode::Normal),
+            "tab creation should keep app in normal mode"
+        );
 
         handle_key_event(&mut app, key(KeyCode::Char('w'), KeyModifiers::CONTROL));
         assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 1);
@@ -519,9 +533,13 @@ mod tests {
 
     #[test]
     fn mouse_click_on_main_border_tab_switches_tab() {
-        let mut app = App::from_state_with_manager(composer_tui::AppState::default(), None);
+        let mut app = test_app();
         app.add_tab_to_selected_workspace();
         app.add_tab_to_selected_workspace();
+        assert!(
+            matches!(app.input_mode(), InputMode::Normal),
+            "tab setup should keep app in normal mode"
+        );
         assert_eq!(
             app.selected_workspace()
                 .expect("workspace")

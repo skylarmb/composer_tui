@@ -10,6 +10,8 @@ use std::{
 use portable_pty::ExitStatus;
 
 use crate::{
+    gh_status::GhWorkspaceStatus,
+    git_status::GitWorkspaceStatus,
     state::{TabState, WorkspaceState},
     tab::Tab,
     terminal::ScreenBuffer,
@@ -25,6 +27,8 @@ pub struct Workspace {
     branch_name: Option<String>,
     tabs: Vec<Tab>,
     active_tab_index: usize,
+    git_status: Option<GitWorkspaceStatus>,
+    gh_status: Option<GhWorkspaceStatus>,
     /// Whether the auto-spawn command has been sent for this workspace.
     auto_spawned: bool,
 }
@@ -38,6 +42,8 @@ impl std::fmt::Debug for Workspace {
             .field("branch_name", &self.branch_name)
             .field("tab_count", &self.tabs.len())
             .field("active_tab_index", &self.active_tab_index)
+            .field("git_status", &self.git_status)
+            .field("gh_status", &self.gh_status)
             .finish()
     }
 }
@@ -63,6 +69,8 @@ impl Workspace {
             branch_name: None,
             tabs: vec![Tab::new()],
             active_tab_index: 0,
+            git_status: None,
+            gh_status: None,
             auto_spawned: false,
         }
     }
@@ -81,6 +89,8 @@ impl Workspace {
             branch_name: Some(branch_name.into()),
             tabs: vec![Tab::new()],
             active_tab_index: 0,
+            git_status: None,
+            gh_status: None,
             auto_spawned: false,
         }
     }
@@ -124,6 +134,26 @@ impl Workspace {
     pub fn active_tab_title(&self) -> String {
         self.tab_title(self.active_tab_index)
             .unwrap_or_else(|| format!("tab{}", self.active_tab_index + 1))
+    }
+
+    /// Last known git status for this workspace.
+    pub fn git_status(&self) -> Option<&GitWorkspaceStatus> {
+        self.git_status.as_ref()
+    }
+
+    /// Update git status (from background pollers).
+    pub fn set_git_status(&mut self, status: Option<GitWorkspaceStatus>) {
+        self.git_status = status;
+    }
+
+    /// Last known GitHub PR/CI status for this workspace.
+    pub fn gh_status(&self) -> Option<&GhWorkspaceStatus> {
+        self.gh_status.as_ref()
+    }
+
+    /// Update GitHub PR/CI status (from background pollers).
+    pub fn set_gh_status(&mut self, status: Option<GhWorkspaceStatus>) {
+        self.gh_status = status;
     }
 
     /// Add a new tab and select it.
@@ -342,6 +372,8 @@ impl From<WorkspaceState> for Workspace {
             branch_name: state.branch_name,
             tabs,
             active_tab_index,
+            git_status: None,
+            gh_status: None,
             auto_spawned: false,
         }
     }

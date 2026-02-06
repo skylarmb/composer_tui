@@ -3,16 +3,21 @@
 //! This module is UI-independent and is exercised via unit tests to ensure
 //! navigation and input logic works before wiring it into the TUI.
 
-use std::{env, io};
+use std::{env, io, time::Duration};
 
 #[cfg(not(test))]
 use crate::state::WorkspaceState;
 use crate::{
     config::Config,
+    gh_status::{GhStatusFetcher, GhWorkspaceTarget},
+    git_status::{GitStatusFetcher, GitWorkspaceTarget},
     state::AppState,
     workspace::{Workspace, WorkspaceTerminalState},
     worktree::WorktreeManager,
 };
+
+const GIT_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(7);
+const GH_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(45);
 
 /// Holds global application state.
 pub struct App {
@@ -27,6 +32,10 @@ pub struct App {
     fullscreen: bool,
     /// Persistent user configuration.
     config: Config,
+    /// Background poller for git dirty/clean status.
+    git_status_fetcher: GitStatusFetcher,
+    /// Background poller for PR/CI status from the `gh` CLI.
+    gh_status_fetcher: GhStatusFetcher,
 }
 
 impl App {
@@ -66,6 +75,8 @@ impl App {
             worktree_manager,
             fullscreen: false,
             config,
+            git_status_fetcher: GitStatusFetcher::new(GIT_STATUS_POLL_INTERVAL),
+            gh_status_fetcher: GhStatusFetcher::new(GH_STATUS_POLL_INTERVAL),
         }
     }
 
@@ -248,7 +259,7 @@ impl App {
     ///
     /// Passes configured shell and scrollback limit to terminal creation,
     /// then polls all tabs across all workspaces.
-    pub fn tick_terminals(&mut self, cols: u16, rows: u16) {
+    pub fn tick(&mut self, cols: u16, rows: u16) {
         let shell = self.config.default_shell.clone();
         let scrollback_limit = self.config.scrollback_limit();
         let auto_spawn_command = self.config.auto_spawn_command.clone();
@@ -278,6 +289,34 @@ impl App {
         for workspace in &mut self.workspaces {
             workspace.poll_tabs();
         }
+
+        let git_targets = self
+            .workspaces
+            .iter()
+            .filter_map(|workspace| {
+                workspace.worktree_path().map(|path| {
+                    GitWorkspaceTarget::new(workspace.id().to_string(), path.to_path_buf())
+                })
+            })
+            .collect();
+        self.git_status_fetcher.set_targets(git_targets);
+
+        let gh_targets = self
+            .workspaces
+            .iter()
+            .filter_map(|workspace| {
+                let path = workspace.worktree_path()?;
+                let branch_name = workspace.branch_name()?;
+                Some(GhWorkspaceTarget::new(
+                    workspace.id().to_string(),
+                    path.to_path_buf(),
+                    branch_name.to_string(),
+                ))
+            })
+            .collect();
+        self.gh_status_fetcher.set_targets(gh_targets);
+
+        self.apply_status_updates();
     }
 
     /// Add a new tab to the selected workspace and persist state.
@@ -380,13 +419,48 @@ impl App {
             .is_some_and(|workspace| workspace.is_scrolled())
     }
 
+    fn apply_status_updates(&mut self) {
+        for workspace in &mut self.workspaces {
+            if workspace.worktree_path().is_none() {
+                workspace.set_git_status(None);
+            }
+            if workspace.worktree_path().is_none() || workspace.branch_name().is_none() {
+                workspace.set_gh_status(None);
+            }
+        }
+
+        for update in self.git_status_fetcher.drain_updates() {
+            if let Some(workspace) = self
+                .workspaces
+                .iter_mut()
+                .find(|workspace| workspace.id() == update.workspace_id)
+            {
+                workspace.set_git_status(update.status);
+            }
+        }
+
+        for update in self.gh_status_fetcher.drain_updates() {
+            if let Some(workspace) = self
+                .workspaces
+                .iter_mut()
+                .find(|workspace| workspace.id() == update.workspace_id)
+            {
+                workspace.set_gh_status(update.status);
+            }
+        }
+    }
+
     /// Persist the current app state to disk.
     pub fn save_state(&self) -> io::Result<()> {
+        if std::env::var_os("COMPOSER_TUI_DISABLE_STATE_SAVE").is_some() {
+            return Ok(());
+        }
+
         #[cfg(test)]
         {
             // Tests run in parallel and some mutate HOME; avoid cross-test
             // interference from filesystem writes in app-level unit tests.
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(test))]
@@ -743,7 +817,7 @@ mod tests {
     fn start_close_tab_prompts_confirmation_when_tab_is_running() {
         let mut app = App::from_state_with_manager(AppState::default(), None);
         app.add_tab_to_selected_workspace();
-        app.tick_terminals(80, 24);
+        app.tick(80, 24);
 
         app.start_close_selected_workspace_tab();
         assert!(matches!(app.input_mode(), InputMode::ConfirmCloseTab));
