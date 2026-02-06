@@ -112,6 +112,37 @@ impl ScreenBuffer {
             .map(|line| line.iter().map(|cell| cell.ch).collect())
     }
 
+    /// Get all cells in a row.
+    pub fn row_cells(&self, row: usize) -> Option<&[Cell]> {
+        self.cells.get(row).map(Vec::as_slice)
+    }
+
+    /// Resize the screen while preserving top-left content where possible.
+    pub fn resize(&mut self, cols: usize, rows: usize) {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+
+        if cols == self.cols && rows == self.rows {
+            return;
+        }
+
+        for row in &mut self.cells {
+            row.resize(cols, Cell::default());
+        }
+
+        if rows > self.rows {
+            self.cells
+                .extend((0..(rows - self.rows)).map(|_| vec![Cell::default(); cols]));
+        } else {
+            self.cells.truncate(rows);
+        }
+
+        self.cols = cols;
+        self.rows = rows;
+        self.cursor_row = self.cursor_row.min(self.rows - 1);
+        self.cursor_col = self.cursor_col.min(self.cols - 1);
+    }
+
     fn reset(&mut self) {
         self.clear_all();
         self.cursor_row = 0;
@@ -429,5 +460,19 @@ mod tests {
 
         assert_eq!(screen.cell(0, 3).map(|c| c.ch), Some('N'));
         assert_eq!(screen.cell(0, 3).map(|c| c.style.fg), Some(Color::Default));
+    }
+
+    #[test]
+    fn resize_preserves_existing_content() {
+        let mut screen = ScreenBuffer::new(4, 2);
+        screen.write(b"ABCDxy");
+
+        screen.resize(6, 3);
+
+        assert_eq!(screen.row_text(0).as_deref(), Some("ABCD  "));
+        assert_eq!(screen.row_text(1).as_deref(), Some("xy    "));
+        assert_eq!(screen.row_text(2).as_deref(), Some("      "));
+        assert_eq!(screen.rows(), 3);
+        assert_eq!(screen.cols(), 6);
     }
 }

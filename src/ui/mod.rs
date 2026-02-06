@@ -44,6 +44,19 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_modal(frame, app);
 }
 
+/// Compute PTY dimensions for the main panel content area.
+pub fn main_panel_terminal_size(width: u16, height: u16) -> (u16, u16) {
+    let frame_area = Rect::new(0, 0, width, height);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(frame_area);
+    let body_chunks =
+        Layout::horizontal([Constraint::Length(12), Constraint::Min(0)]).split(chunks[1]);
+    let main = body_chunks[1];
+    (
+        main.width.saturating_sub(2).max(1),
+        main.height.saturating_sub(2).max(1),
+    )
+}
+
 fn render_modal(frame: &mut Frame, app: &App) {
     let (title, body) = match app.input_mode() {
         InputMode::Normal => return,

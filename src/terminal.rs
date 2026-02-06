@@ -9,7 +9,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, ExitStatus, MasterPty, PtySize};
 
 pub use screen::{Cell, CellStyle, Color, ScreenBuffer};
 
@@ -108,6 +108,14 @@ impl Terminal {
                 pixel_height: 0,
             })
             .map_err(to_io_error)
+    }
+
+    /// Poll whether the shell process has exited.
+    pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        match &mut self.child {
+            Some(child) => child.try_wait(),
+            None => Ok(Some(ExitStatus::with_exit_code(0))),
+        }
     }
 
     /// Kill the shell process and clean up resources.

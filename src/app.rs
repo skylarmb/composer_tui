@@ -184,6 +184,31 @@ impl App {
         self.workspaces.get(self.selected_index)
     }
 
+    /// Ensure selected workspace terminal is running and poll output.
+    pub fn tick_terminals(&mut self, cols: u16, rows: u16) {
+        if let Some(workspace) = self.selected_workspace_mut() {
+            if let Err(err) = workspace.ensure_terminal_started(cols, rows, None) {
+                workspace.set_terminal_error(format!("failed to start terminal: {err}"));
+            }
+        }
+
+        for workspace in &mut self.workspaces {
+            if let Err(err) = workspace.poll_terminal() {
+                workspace.set_terminal_error(format!("terminal I/O error: {err}"));
+            }
+        }
+    }
+
+    /// Send input bytes to the selected workspace terminal.
+    pub fn send_selected_terminal_input(&mut self, data: &[u8]) {
+        let Some(workspace) = self.selected_workspace_mut() else {
+            return;
+        };
+        if let Err(err) = workspace.write_terminal_input(data) {
+            workspace.set_terminal_error(format!("failed to write to terminal: {err}"));
+        }
+    }
+
     /// Persist the current app state to disk.
     pub fn save_state(&self) -> io::Result<()> {
         self.to_state().save()
@@ -271,6 +296,10 @@ impl App {
         let id = self.next_workspace_id;
         self.next_workspace_id += 1;
         id.to_string()
+    }
+
+    fn selected_workspace_mut(&mut self) -> Option<&mut Workspace> {
+        self.workspaces.get_mut(self.selected_index)
     }
 
     fn show_error(&mut self, message: impl Into<String>) {
