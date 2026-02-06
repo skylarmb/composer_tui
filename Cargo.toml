@@ -14,5 +14,6 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 git2 = { version = "0.19", default-features = false }
 portable-pty = "0.9"
+vte = "0.13"
 
 [dev-dependencies]

@@ -242,16 +242,11 @@ mod tests {
         env, fs,
         path::{Path, PathBuf},
         process,
-        sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn with_temp_home<T>(f: impl FnOnce(PathBuf) -> T) -> T {
-        let _guard = TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::test_support::lock_home_env();
         let original_home = env::var("HOME").ok();
         let unique = format!(
             "composer_tui_worktree_test_{}_{}",

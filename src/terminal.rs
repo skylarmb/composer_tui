@@ -1,5 +1,7 @@
 //! PTY-backed terminal process management.
 
+pub mod screen;
+
 use std::{
     io::{self, Read, Write},
     path::Path,
@@ -8,6 +10,8 @@ use std::{
 };
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+
+pub use screen::{Cell, CellStyle, Color, ScreenBuffer};
 
 /// A running shell attached to a pseudo terminal.
 pub struct Terminal {
