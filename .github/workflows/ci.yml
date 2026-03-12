@@ -15,7 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: rustup default stable
       - run: cargo build --all-targets
 
   test:
@@ -23,7 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: rustup default stable
       - run: cargo test
 
   clippy:
@@ -31,9 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Set up Rust stable with clippy
+        run: |
+          rustup default stable
+          rustup component add clippy
       - run: cargo clippy --all-targets -- -D warnings
 
   fmt:
@@ -41,7 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Set up Rust stable with rustfmt
+        run: |
+          rustup default stable
+          rustup component add rustfmt
       - run: cargo fmt --check
