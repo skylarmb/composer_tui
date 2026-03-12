@@ -122,10 +122,40 @@ main.rs event loop:
 ## Git & PR Workflow
 
 - Create a feature branch from `main`
-- Commit messages should be concise and describe _what_ changed
 - One logical change per commit
 - Run all checks (fmt, clippy, test, build) before pushing
 - Write a handoff summary in `.context/` if the work spans multiple sessions
+
+### Conventional Commits
+
+All commit messages and PR titles **must** follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>(<scope>): <short summary>
+```
+
+**Types:**
+- `feat` — new feature or capability
+- `fix` — bug fix
+- `refactor` — code change that neither fixes a bug nor adds a feature
+- `test` — adding or updating tests
+- `docs` — documentation only
+- `chore` — build, CI, tooling, or other non-code changes
+- `perf` — performance improvement
+
+**Scope** is optional but encouraged — use the module or area affected (e.g. `sidebar`, `git`, `config`, `ui`, `workspace`, `tabs`).
+
+**Examples:**
+```
+feat(sidebar): add git dirty indicator per workspace
+fix(terminal): prevent scroll snap when reviewing history
+refactor(app): extract modal handling into separate method
+test(worktree): add coverage for branch conflict detection
+docs: add AGENTS.md with architecture and conventions
+chore(ci): add GitHub Actions workflow for lint and test
+```
+
+PR titles follow the same format. The PR title becomes the squash-merge commit message, so it should be a clear, concise summary of the change.
 
 ## Config & State Locations
 
