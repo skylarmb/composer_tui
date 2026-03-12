@@ -371,6 +371,70 @@ fn open_settings_editor(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -
     Ok(())
 }
 
+/// Check whether a point (col, row) falls within a `Rect`.
+fn rect_contains(rect: ratatui::layout::Rect, col: u16, row: u16) -> bool {
+    col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
+}
+
+fn handle_modal_key_event(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.cancel_input(),
+        KeyCode::Enter => app.confirm_input(),
+        KeyCode::Backspace => app.pop_input_char(),
+        KeyCode::Char(ch) => {
+            if matches!(app.input_mode(), InputMode::CreateWorkspace { .. }) {
+                app.push_input_char(ch);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Handle mouse click events for focus and workspace selection.
+fn handle_mouse_event(
+    app: &mut App,
+    mouse: MouseEvent,
+    width: u16,
+    height: u16,
+    sidebar_width: u16,
+) {
+    // Only respond to left button presses (ignore drags, scrolls, releases).
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return;
+    }
+
+    // Ignore mouse clicks while a modal is active.
+    if app.is_modal_active() {
+        return;
+    }
+
+    let (_header_rect, sidebar_rect, main_rect, _status_rect) =
+        ui::layout_rects(width, height, app.is_fullscreen(), sidebar_width);
+
+    let col = mouse.column;
+    let row = mouse.row;
+
+    if let Some(tab_index) = ui::main_panel_tab_index_at(main_rect, app, col, row) {
+        app.select_selected_workspace_tab(tab_index);
+        app.focus_right();
+        return;
+    }
+
+    if let Some(sidebar) = sidebar_rect {
+        if rect_contains(sidebar, col, row) {
+            // Workspace items start below the sidebar top border (sidebar.y + 1).
+            let inner_row = row.saturating_sub(sidebar.y + 1) as usize;
+            app.set_selected_index(inner_row);
+            app.focus_left();
+            return;
+        }
+    }
+
+    if rect_contains(main_rect, col, row) {
+        app.focus_right();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,69 +627,5 @@ mod tests {
             0
         );
         assert_eq!(app.focus(), FocusArea::Main);
-    }
-}
-
-/// Handle mouse click events for focus and workspace selection.
-fn handle_mouse_event(
-    app: &mut App,
-    mouse: MouseEvent,
-    width: u16,
-    height: u16,
-    sidebar_width: u16,
-) {
-    // Only respond to left button presses (ignore drags, scrolls, releases).
-    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-        return;
-    }
-
-    // Ignore mouse clicks while a modal is active.
-    if app.is_modal_active() {
-        return;
-    }
-
-    let (_header_rect, sidebar_rect, main_rect, _status_rect) =
-        ui::layout_rects(width, height, app.is_fullscreen(), sidebar_width);
-
-    let col = mouse.column;
-    let row = mouse.row;
-
-    if let Some(tab_index) = ui::main_panel_tab_index_at(main_rect, app, col, row) {
-        app.select_selected_workspace_tab(tab_index);
-        app.focus_right();
-        return;
-    }
-
-    if let Some(sidebar) = sidebar_rect {
-        if rect_contains(sidebar, col, row) {
-            // Workspace items start below the sidebar top border (sidebar.y + 1).
-            let inner_row = row.saturating_sub(sidebar.y + 1) as usize;
-            app.set_selected_index(inner_row);
-            app.focus_left();
-            return;
-        }
-    }
-
-    if rect_contains(main_rect, col, row) {
-        app.focus_right();
-    }
-}
-
-/// Check whether a point (col, row) falls within a `Rect`.
-fn rect_contains(rect: ratatui::layout::Rect, col: u16, row: u16) -> bool {
-    col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
-}
-
-fn handle_modal_key_event(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => app.cancel_input(),
-        KeyCode::Enter => app.confirm_input(),
-        KeyCode::Backspace => app.pop_input_char(),
-        KeyCode::Char(ch) => {
-            if matches!(app.input_mode(), InputMode::CreateWorkspace { .. }) {
-                app.push_input_char(ch);
-            }
-        }
-        _ => {}
     }
 }
