@@ -113,7 +113,9 @@ impl App {
         self.selected_index -= 1;
 
         if let Err(err) = self.save_state() {
-            self.show_error(format!("workspace reordered but failed to save state: {err}"));
+            self.show_error(format!(
+                "workspace reordered but failed to save state: {err}"
+            ));
         }
 
         true
@@ -132,7 +134,9 @@ impl App {
         self.selected_index += 1;
 
         if let Err(err) = self.save_state() {
-            self.show_error(format!("workspace reordered but failed to save state: {err}"));
+            self.show_error(format!(
+                "workspace reordered but failed to save state: {err}"
+            ));
         }
 
         true
