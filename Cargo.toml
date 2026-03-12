@@ -1,6 +1,6 @@
 [package]
 name = "composer_tui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["composer_tui contributors"]
 description = "Terminal-based tool for orchestrating parallel AI coding agents"
