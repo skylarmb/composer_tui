@@ -8,13 +8,21 @@ Instructions for AI coding agents working on this project. Read this before star
 
 ## Build & Verify
 
-All commands must run through direnv. **Always run these before considering work complete:**
+**Always run these before considering work complete:**
 
 ```bash
-direnv exec . cargo fmt        # Format code
-direnv exec . cargo clippy     # Lint — must be warning-free
-direnv exec . cargo test       # All tests must pass
-direnv exec . cargo build      # Verify it compiles
+cargo fmt        # Format code
+cargo clippy     # Lint — must be warning-free
+cargo test       # All tests must pass
+cargo build      # Verify it compiles
+```
+
+If `cargo` is not available in your shell, use the Nix dev environment via `direnv exec .` or `nix develop`:
+
+```bash
+direnv exec . cargo fmt
+# or
+nix develop --command cargo fmt
 ```
 
 If any check fails, fix the issue before committing.
