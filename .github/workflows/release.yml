@@ -74,9 +74,6 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: composer_tui-aarch64-macos
-          - target: x86_64-apple-darwin
-            os: macos-13
-            artifact: composer_tui-x86_64-macos
     steps:
       - uses: actions/checkout@v4
         with:
@@ -158,5 +155,4 @@ jobs:
             --title "${{ needs.version.outputs.tag }}" \
             --notes-file changelog.md \
             artifacts/composer_tui-x86_64-linux/composer_tui-x86_64-linux \
-            artifacts/composer_tui-aarch64-macos/composer_tui-aarch64-macos \
-            artifacts/composer_tui-x86_64-macos/composer_tui-x86_64-macos
+            artifacts/composer_tui-aarch64-macos/composer_tui-aarch64-macos
