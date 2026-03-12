@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "composer_tui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "crossterm",
  "directories",

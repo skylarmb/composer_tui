@@ -86,6 +86,8 @@ fn sidebar_hints() -> Line<'static> {
     Line::from(vec![
         key_span("j/k"),
         desc_span(" navigate  "),
+        key_span("Shift+J/K"),
+        desc_span(" move  "),
         key_span("Enter"),
         desc_span(" focus terminal  "),
         key_span("Ctrl+T"),
@@ -183,5 +185,7 @@ mod tests {
         assert!(text.contains("reload"));
         assert!(text.contains("Ctrl+T"));
         assert!(text.contains("Ctrl+W"));
+        assert!(text.contains("Shift+J/K"));
+        assert!(text.contains("move"));
     }
 }
