@@ -95,11 +95,21 @@ main.rs event loop:
 6. **State persistence**: if it should survive restart, add it to `AppState`/`WorkspaceState` in `state.rs`
 
 ### Testing
+
+**All new code must have unit test coverage.** Aim for 100% coverage where possible — there will always be edge cases that can't be practically unit tested (e.g. PTY I/O, raw terminal mode), but all logic, state transitions, and data transformations should be tested.
+
+**Prefer a TDD approach:**
+1. Write failing tests that define the expected behavior
+2. Implement the minimum code to make them pass
+3. Refactor with confidence that tests catch regressions
+
+**Test guidelines:**
 - Tests live inline in each module via `#[cfg(test)]`
 - Use `test_app()` helper (creates app with state saving disabled)
 - Test app logic without UI framework — don't test rendering, test state transitions
 - Tests must not depend on external tools (git repos, `gh` CLI, filesystem)
-- ~91 existing tests across all modules
+- Cover both happy paths and error/edge cases
+- ~91 existing tests across all modules — new features should maintain or improve this ratio
 
 ### What NOT to Do
 - Don't add `unsafe` code
