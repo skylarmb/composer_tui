@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get current version
+        id: current
+        run: |
+          version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: bump
+        run: |
+          IFS='.' read -r major minor patch <<< "${{ steps.current.outputs.version }}"
+          if [ "${{ inputs.bump }}" = "minor" ]; then
+            minor=$((minor + 1))
+            patch=0
+          else
+            patch=$((patch + 1))
+          fi
+          version="${major}.${minor}.${patch}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${{ steps.current.outputs.version }} -> $version"
+
+      - name: Update Cargo.toml version
+        run: sed -i "s/^version = \".*\"/version = \"${{ steps.bump.outputs.version }}\"/" Cargo.toml
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          git push
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: composer_tui-x86_64-linux
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: composer_tui-aarch64-macos
+          - target: x86_64-apple-darwin
+            os: macos-13
+            artifact: composer_tui-x86_64-macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/composer_tui dist/${{ matrix.artifact }}
+          chmod +x dist/${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    name: Create Release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate changelog from conventional commits
+        id: changelog
+        run: |
+          # Find the previous tag, or use the first commit if none exists.
+          prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+
+          changelog=""
+          for type_label in "feat:Features" "fix:Bug Fixes" "refactor:Refactoring" "perf:Performance" "docs:Documentation" "test:Tests" "chore:Chores"; do
+            type="${type_label%%:*}"
+            label="${type_label##*:}"
+            # Collect commits matching this type prefix.
+            commits=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s" --grep="^${type}" 2>/dev/null || true)
+            if [ -n "$commits" ]; then
+              changelog="${changelog}## ${label}\n${commits}\n\n"
+            fi
+          done
+
+          # Catch any commits that don't match conventional format.
+          other=$(git log "${prev_tag}..HEAD" --pretty=format:"%s" | grep -v -E "^(feat|fix|refactor|perf|docs|test|chore)" || true)
+          if [ -n "$other" ]; then
+            formatted=$(echo "$other" | sed 's/^/- /')
+            changelog="${changelog}## Other\n${formatted}\n\n"
+          fi
+
+          if [ -z "$changelog" ]; then
+            changelog="No notable changes."
+          fi
+
+          # Write to file to avoid escaping issues.
+          echo -e "$changelog" > changelog.md
+          cat changelog.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.version.outputs.tag }}" \
+            --title "${{ needs.version.outputs.tag }}" \
+            --notes-file changelog.md \
+            artifacts/composer_tui-x86_64-linux/composer_tui-x86_64-linux \
+            artifacts/composer_tui-aarch64-macos/composer_tui-aarch64-macos \
+            artifacts/composer_tui-x86_64-macos/composer_tui-x86_64-macos
