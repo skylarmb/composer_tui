@@ -347,12 +347,7 @@ mod tests {
                 "deleted worktree should not remain listed"
             );
 
-            let _ = fs::remove_dir_all(
-                repo_path
-                    .parent()
-                    .expect("repo parent should exist")
-                    .to_path_buf(),
-            );
+            let _ = fs::remove_dir_all(repo_path.parent().expect("repo parent should exist"));
         });
     }
 
@@ -375,12 +370,7 @@ mod tests {
                 .expect("create");
             assert!(path.exists(), "worktree should exist for existing branch");
 
-            let _ = fs::remove_dir_all(
-                repo_path
-                    .parent()
-                    .expect("repo parent should exist")
-                    .to_path_buf(),
-            );
+            let _ = fs::remove_dir_all(repo_path.parent().expect("repo parent should exist"));
         });
     }
 
@@ -395,12 +385,7 @@ mod tests {
             let second = manager.create_worktree("agent-dup", "feature/dup-2");
             assert!(matches!(second, Err(WorktreeError::NameExists { .. })));
 
-            let _ = fs::remove_dir_all(
-                repo_path
-                    .parent()
-                    .expect("repo parent should exist")
-                    .to_path_buf(),
-            );
+            let _ = fs::remove_dir_all(repo_path.parent().expect("repo parent should exist"));
         });
     }
 
@@ -415,12 +400,7 @@ mod tests {
                 Err(WorktreeError::InvalidBranchName { .. })
             ));
 
-            let _ = fs::remove_dir_all(
-                repo_path
-                    .parent()
-                    .expect("repo parent should exist")
-                    .to_path_buf(),
-            );
+            let _ = fs::remove_dir_all(repo_path.parent().expect("repo parent should exist"));
         });
     }
 
@@ -440,12 +420,7 @@ mod tests {
             let result = manager.create_worktree("agent-conflict", &branch);
             assert!(matches!(result, Err(WorktreeError::BranchConflict { .. })));
 
-            let _ = fs::remove_dir_all(
-                repo_path
-                    .parent()
-                    .expect("repo parent should exist")
-                    .to_path_buf(),
-            );
+            let _ = fs::remove_dir_all(repo_path.parent().expect("repo parent should exist"));
         });
     }
 }
