@@ -147,6 +147,102 @@ fn read_git_status(path: &Path) -> Option<GitWorkspaceStatus> {
     })
 }
 
+/// Build a human-readable list of lines describing the working-tree changes
+/// for the given path.  Used to populate the changes panel modal.
+///
+/// Returns `None` only when the path is not inside a git repository.
+pub fn read_changes_panel_lines(path: &Path) -> Option<Vec<String>> {
+    let repo = Repository::discover(path).ok()?;
+
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .renames_head_to_index(true);
+    let statuses = repo.statuses(Some(&mut opts)).ok()?;
+
+    let mut staged: Vec<String> = Vec::new();
+    let mut unstaged: Vec<String> = Vec::new();
+    let mut untracked: Vec<String> = Vec::new();
+    let mut conflicts: Vec<String> = Vec::new();
+
+    for entry in statuses.iter() {
+        let path_str = entry.path().unwrap_or("?").to_string();
+        let s = entry.status();
+
+        if s.contains(Status::CONFLICTED) {
+            conflicts.push(format!("  !!  {path_str}"));
+            continue;
+        }
+
+        // Staged (index) changes
+        if s.intersects(
+            Status::INDEX_NEW
+                | Status::INDEX_MODIFIED
+                | Status::INDEX_DELETED
+                | Status::INDEX_RENAMED
+                | Status::INDEX_TYPECHANGE,
+        ) {
+            let code = if s.contains(Status::INDEX_NEW) {
+                "A"
+            } else if s.contains(Status::INDEX_DELETED) {
+                "D"
+            } else if s.contains(Status::INDEX_RENAMED) {
+                "R"
+            } else {
+                "M"
+            };
+            staged.push(format!("  {code}   {path_str}"));
+        }
+
+        // Unstaged (workdir) changes
+        if s.intersects(
+            Status::WT_MODIFIED | Status::WT_DELETED | Status::WT_RENAMED | Status::WT_TYPECHANGE,
+        ) {
+            let code = if s.contains(Status::WT_DELETED) {
+                "D"
+            } else if s.contains(Status::WT_RENAMED) {
+                "R"
+            } else {
+                "M"
+            };
+            unstaged.push(format!("  {code}   {path_str}"));
+        }
+
+        if s.contains(Status::WT_NEW) {
+            untracked.push(format!("  ?   {path_str}"));
+        }
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+
+    if !conflicts.is_empty() {
+        lines.push("Conflicts:".to_string());
+        lines.extend(conflicts);
+        lines.push(String::new());
+    }
+    if !staged.is_empty() {
+        lines.push("Staged:".to_string());
+        lines.extend(staged);
+        lines.push(String::new());
+    }
+    if !unstaged.is_empty() {
+        lines.push("Unstaged:".to_string());
+        lines.extend(unstaged);
+        lines.push(String::new());
+    }
+    if !untracked.is_empty() {
+        lines.push("Untracked:".to_string());
+        lines.extend(untracked);
+        lines.push(String::new());
+    }
+
+    if lines.is_empty() {
+        lines.push("Nothing to show — working tree is clean.".to_string());
+    }
+
+    Some(lines)
+}
+
 fn unstaged_line_counts(repo: &Repository) -> Option<(usize, usize)> {
     let mut diff_options = git2::DiffOptions::new();
     diff_options
