@@ -39,10 +39,24 @@ impl Terminal {
             .map(ToOwned::to_owned)
             .unwrap_or_else(default_shell_program);
 
-        let mut cmd = CommandBuilder::new(shell_program);
+        let mut cmd = CommandBuilder::new(&shell_program);
         cmd.cwd(cwd.as_ref());
         // Avoid zsh's end-of-line marker (`%`) in embedded terminal output.
         cmd.env("PROMPT_EOL_MARK", "");
+        // Skip user rc files to avoid init-script side effects (e.g. readline
+        // `bind` calls) inside embedded terminals.
+        match shell_basename(&shell_program) {
+            "bash" => {
+                cmd.arg("--norc");
+            }
+            "zsh" => {
+                cmd.arg("--no-rcs");
+            }
+            "fish" => {
+                cmd.arg("--no-config");
+            }
+            _ => {}
+        }
 
         let child = pair.slave.spawn_command(cmd).map_err(to_io_error)?;
         drop(pair.slave);
@@ -146,6 +160,18 @@ impl Drop for Terminal {
 
 fn to_io_error(err: impl std::fmt::Display) -> io::Error {
     io::Error::other(err.to_string())
+}
+
+/// Extract the bare shell name from a program path (e.g. "/usr/bin/env zsh" → "zsh",
+/// "/bin/bash" → "bash").
+fn shell_basename(program: &str) -> &str {
+    // Handle "/usr/bin/env zsh" style — take the last whitespace-separated token.
+    let last_token = program.split_whitespace().next_back().unwrap_or(program);
+    // Then take the filename component of the path.
+    std::path::Path::new(last_token)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(last_token)
 }
 
 fn default_shell_program() -> String {

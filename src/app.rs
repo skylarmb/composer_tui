@@ -10,7 +10,7 @@ use crate::state::WorkspaceState;
 use crate::{
     config::Config,
     gh_status::{GhStatusFetcher, GhWorkspaceTarget},
-    git_status::{GitStatusFetcher, GitWorkspaceTarget},
+    git_status::{read_changes_panel_lines, GitStatusFetcher, GitWorkspaceTarget},
     state::AppState,
     workspace::{Workspace, WorkspaceTerminalState},
     worktree::WorktreeManager,
@@ -124,15 +124,23 @@ impl App {
 
     /// Append an input character for the active input mode.
     pub fn push_input_char(&mut self, ch: char) {
-        if let InputMode::CreateWorkspace { name } = &mut self.input_mode {
-            name.push(ch);
+        match &mut self.input_mode {
+            InputMode::CreateWorkspace { name } => name.push(ch),
+            InputMode::CommitMessage { message } => message.push(ch),
+            _ => {}
         }
     }
 
     /// Delete the last input character for the active input mode.
     pub fn pop_input_char(&mut self) {
-        if let InputMode::CreateWorkspace { name } = &mut self.input_mode {
-            name.pop();
+        match &mut self.input_mode {
+            InputMode::CreateWorkspace { name } => {
+                name.pop();
+            }
+            InputMode::CommitMessage { message } => {
+                message.pop();
+            }
+            _ => {}
         }
     }
 
@@ -146,6 +154,8 @@ impl App {
                 let _ = self.close_selected_workspace_tab();
                 self.input_mode = InputMode::Normal;
             }
+            InputMode::CommitMessage { message } => self.execute_commit(message),
+            InputMode::ChangesPanel { .. } => self.input_mode = InputMode::Normal,
             InputMode::Error { .. } => self.input_mode = InputMode::Normal,
         }
     }
@@ -484,7 +494,7 @@ impl App {
             return;
         }
 
-        let branch = name.clone();
+        let branch = format!("{}{name}", self.config.branch_prefix());
         let Some(manager) = &self.worktree_manager else {
             self.show_error("worktree manager unavailable");
             return;
@@ -552,6 +562,66 @@ impl App {
         id.to_string()
     }
 
+    /// Open the commit-message input modal.
+    ///
+    /// Requires a selected workspace with a worktree.  Shows an error otherwise.
+    pub fn start_commit_message(&mut self) {
+        match self.selected_workspace() {
+            None => {
+                self.show_error("no workspace selected");
+                return;
+            }
+            Some(ws) if ws.worktree_path().is_none() => {
+                self.show_error("workspace has no git worktree");
+                return;
+            }
+            _ => {}
+        }
+        self.input_mode = InputMode::CommitMessage {
+            message: String::new(),
+        };
+    }
+
+    /// Execute `git add -A && git commit -m "<message>" && git push` in the
+    /// selected workspace terminal.
+    fn execute_commit(&mut self, message: String) {
+        let message = message.trim().to_string();
+        if message.is_empty() {
+            self.show_error("commit message cannot be empty");
+            return;
+        }
+
+        // Escape double-quotes so the shell doesn't break the -m argument.
+        let escaped = message.replace('\\', "\\\\").replace('"', "\\\"");
+        let cmd = format!("git add -A && git commit -m \"{escaped}\" && git push\r");
+
+        self.input_mode = InputMode::Normal;
+        self.focus = FocusArea::Main;
+
+        let result = self
+            .selected_workspace_mut()
+            .map(|ws| ws.write_terminal_input(cmd.as_bytes()));
+        if let Some(Err(err)) = result {
+            self.show_error(format!("failed to send commit command: {err}"));
+        }
+    }
+
+    /// Open the changes panel modal showing the current git working-tree state.
+    pub fn show_changes_panel(&mut self) {
+        let path = match self.selected_workspace().and_then(|ws| ws.worktree_path()) {
+            Some(p) => p.to_path_buf(),
+            None => {
+                self.show_error("no git worktree for selected workspace");
+                return;
+            }
+        };
+
+        let lines = read_changes_panel_lines(&path)
+            .unwrap_or_else(|| vec!["Not a git repository.".to_string()]);
+
+        self.input_mode = InputMode::ChangesPanel { lines };
+    }
+
     fn selected_workspace_mut(&mut self) -> Option<&mut Workspace> {
         self.workspaces.get_mut(self.selected_index)
     }
@@ -581,10 +651,24 @@ pub enum FocusArea {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputMode {
     Normal,
-    CreateWorkspace { name: String },
-    ConfirmDelete { workspace_name: String },
+    CreateWorkspace {
+        name: String,
+    },
+    ConfirmDelete {
+        workspace_name: String,
+    },
     ConfirmCloseTab,
-    Error { message: String },
+    /// User is typing a git commit message before committing and pushing.
+    CommitMessage {
+        message: String,
+    },
+    /// Display-only panel showing the current git working-tree changes.
+    ChangesPanel {
+        lines: Vec<String>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 fn next_workspace_id(workspaces: &[Workspace]) -> u64 {

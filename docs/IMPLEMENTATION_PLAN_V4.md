@@ -51,13 +51,13 @@ Eight phases evolving from a polished daily-driver into a full-featured AI-nativ
 - Modify: `src/config.rs`, `src/workspace.rs`, `src/app.rs`, `src/main.rs`, `src/ui/mod.rs`, `src/ui/status_bar.rs`
 
 ### Success Criteria
-- [ ] Changes panel shows uncommitted vs committed files
+- [x] Changes panel shows uncommitted vs committed files
 - [ ] Target branch changeable mid-session and persisted
-- [ ] Commit and push shortcut works end-to-end
-- [ ] Merge conflicts surfaced with file list
+- [x] Commit and push shortcut works end-to-end
+- [x] Merge conflicts surfaced with file list
 - [ ] Rebase preference detected and remembered
-- [ ] Custom branch prefix applied to new workspaces
-- [ ] `cargo clippy` + `cargo fmt --check` pass
+- [x] Custom branch prefix applied to new workspaces
+- [x] `cargo clippy` + `cargo fmt --check` pass
 
 ### Handoff
 Write `.context/handoff-phase-19.md`

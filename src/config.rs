@@ -48,6 +48,10 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r##"# composer_tui configuration
 # Sidebar width in columns (default: 20).
 # sidebar_width = 20
 
+# ── Git ─────────────────────────────────────────────────────────────
+# Prefix for auto-generated branch names. Defaults to "$USER/" if unset.
+# branch_prefix = "username/"
+
 # ── Theme / Colors ─────────────────────────────────────────────────
 # [theme]
 # Border color when a panel is focused.
@@ -82,6 +86,11 @@ pub struct Config {
     /// Sidebar width in columns. Default 20.
     #[serde(default)]
     pub sidebar_width: Option<u16>,
+
+    /// Optional prefix prepended to auto-generated git branch names
+    /// (e.g. "username/" produces "username/my-workspace").
+    #[serde(default)]
+    pub branch_prefix: Option<String>,
 
     /// Theme / color overrides.
     #[serde(default)]
@@ -196,6 +205,11 @@ impl Config {
         self.scrollback_limit.unwrap_or(DEFAULT_SCROLLBACK_LIMIT)
     }
 
+    /// Effective branch prefix (empty string when not configured).
+    pub fn branch_prefix(&self) -> &str {
+        self.branch_prefix.as_deref().unwrap_or("")
+    }
+
     /// Effective focused border color (default Yellow).
     pub fn focused_border_color(&self) -> Color {
         self.theme
@@ -271,6 +285,7 @@ mod tests {
             auto_spawn_command: Some("claude".to_string()),
             scrollback_limit: Some(5000),
             sidebar_width: Some(25),
+            branch_prefix: Some("username/".to_string()),
             theme: Some(ThemeConfig {
                 focused_border_color: Some("cyan".to_string()),
                 selected_bg_color: Some("#ff8800".to_string()),
@@ -285,6 +300,7 @@ mod tests {
         assert_eq!(parsed.sidebar_width, Some(25));
         assert_eq!(parsed.sidebar_width(), 25);
         assert_eq!(parsed.scrollback_limit(), 5000);
+        assert_eq!(parsed.branch_prefix.as_deref(), Some("username/"));
     }
 
     #[test]

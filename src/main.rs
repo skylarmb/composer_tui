@@ -204,6 +204,8 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAct
         KeyCode::Char('n') => app.start_create_workspace(),
         KeyCode::Char('d') => app.start_delete_workspace(),
         KeyCode::Char('z') => app.toggle_fullscreen(),
+        KeyCode::Char('g') => app.show_changes_panel(),
+        KeyCode::Char('C') => app.start_commit_message(),
         KeyCode::Char('S') => return Some(EditorAction::OpenSettings),
         KeyCode::Char('R') => app.reload_config(),
         _ => {}
@@ -382,7 +384,10 @@ fn handle_modal_key_event(app: &mut App, key: KeyEvent) {
         KeyCode::Enter => app.confirm_input(),
         KeyCode::Backspace => app.pop_input_char(),
         KeyCode::Char(ch) => {
-            if matches!(app.input_mode(), InputMode::CreateWorkspace { .. }) {
+            if matches!(
+                app.input_mode(),
+                InputMode::CreateWorkspace { .. } | InputMode::CommitMessage { .. }
+            ) {
                 app.push_input_char(ch);
             }
         }

@@ -152,34 +152,53 @@ pub fn main_panel_tab_index_at(main_rect: Rect, app: &App, col: u16, row: u16) -
 }
 
 fn render_modal(frame: &mut Frame, app: &App) {
-    let (title, body) = match app.input_mode() {
-        InputMode::Normal => return,
-        InputMode::CreateWorkspace { name } => (
-            "Create Workspace",
-            format!("Name: {name}\n\nEnter = create\nEsc = cancel"),
-        ),
-        InputMode::ConfirmDelete { workspace_name } => (
-            "Delete Workspace",
-            format!(
-                "Delete workspace '{workspace_name}'?\n\nThis removes the git worktree.\n\nEnter = confirm\nEsc = cancel"
-            ),
-        ),
-        InputMode::ConfirmCloseTab => (
-            "Close Running Tab",
-            "The active tab still has a running process.\n\nClose it anyway?\n\nEnter = close tab\nEsc = cancel".to_string(),
-        ),
-        InputMode::Error { message } => (
-            "Error",
-            format!("{message}\n\nEnter or Esc to dismiss"),
-        ),
-    };
+    match app.input_mode() {
+        InputMode::Normal => {}
+        InputMode::ChangesPanel { lines } => {
+            let body = lines.join("\n") + "\n\ng/Esc = close · C = commit & push";
+            let area = centered_rect(70, 80, frame.area());
+            frame.render_widget(Clear, area);
+            frame.render_widget(
+                Paragraph::new(body).block(Block::default().title("Changes").borders(Borders::ALL)),
+                area,
+            );
+        }
+        mode => {
+            let (title, body) = match mode {
+                InputMode::CreateWorkspace { name } => (
+                    "Create Workspace",
+                    format!("Name: {name}\n\nEnter = create\nEsc = cancel"),
+                ),
+                InputMode::ConfirmDelete { workspace_name } => (
+                    "Delete Workspace",
+                    format!(
+                        "Delete workspace '{workspace_name}'?\n\nThis removes the git worktree.\n\nEnter = confirm\nEsc = cancel"
+                    ),
+                ),
+                InputMode::ConfirmCloseTab => (
+                    "Close Running Tab",
+                    "The active tab still has a running process.\n\nClose it anyway?\n\nEnter = close tab\nEsc = cancel"
+                        .to_string(),
+                ),
+                InputMode::CommitMessage { message } => (
+                    "Commit & Push",
+                    format!("Message: {message}\n\nEnter = commit & push\nEsc = cancel"),
+                ),
+                InputMode::Error { message } => (
+                    "Error",
+                    format!("{message}\n\nEnter or Esc to dismiss"),
+                ),
+                InputMode::Normal | InputMode::ChangesPanel { .. } => return,
+            };
 
-    let area = centered_rect(60, 40, frame.area());
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(body).block(Block::default().title(title).borders(Borders::ALL)),
-        area,
-    );
+            let area = centered_rect(60, 40, frame.area());
+            frame.render_widget(Clear, area);
+            frame.render_widget(
+                Paragraph::new(body).block(Block::default().title(title).borders(Borders::ALL)),
+                area,
+            );
+        }
+    }
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
