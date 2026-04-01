@@ -103,6 +103,48 @@ impl App {
         }
     }
 
+    /// Move the selected workspace one position earlier in the sidebar.
+    ///
+    /// Returns `true` if the workspace moved.
+    pub fn move_selected_workspace_up(&mut self) -> bool {
+        if self.selected_index == 0 || self.workspaces.len() <= 1 {
+            return false;
+        }
+
+        self.workspaces
+            .swap(self.selected_index, self.selected_index - 1);
+        self.selected_index -= 1;
+
+        if let Err(err) = self.save_state() {
+            self.show_error(format!(
+                "workspace reordered but failed to save state: {err}"
+            ));
+        }
+
+        true
+    }
+
+    /// Move the selected workspace one position later in the sidebar.
+    ///
+    /// Returns `true` if the workspace moved.
+    pub fn move_selected_workspace_down(&mut self) -> bool {
+        if self.workspaces.len() <= 1 || self.selected_index >= self.workspaces.len() - 1 {
+            return false;
+        }
+
+        self.workspaces
+            .swap(self.selected_index, self.selected_index + 1);
+        self.selected_index += 1;
+
+        if let Err(err) = self.save_state() {
+            self.show_error(format!(
+                "workspace reordered but failed to save state: {err}"
+            ));
+        }
+
+        true
+    }
+
     /// Start create-workspace input mode.
     pub fn start_create_workspace(&mut self) {
         if self.worktree_manager.is_none() {
@@ -749,6 +791,52 @@ mod tests {
         let mut app = App::from_state_with_manager(AppState::default(), None);
         app.select_previous();
         assert_eq!(app.selected_index(), app.workspaces().len() - 1);
+    }
+
+    #[test]
+    fn move_selected_workspace_up_swaps_workspaces_and_selection() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.selected_index = 1;
+
+        assert!(app.move_selected_workspace_up());
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(app.workspaces()[0].name(), "W2");
+        assert_eq!(app.workspaces()[1].name(), "W1");
+        assert_eq!(app.workspaces()[2].name(), "W3");
+    }
+
+    #[test]
+    fn move_selected_workspace_up_is_noop_at_top() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+
+        assert!(!app.move_selected_workspace_up());
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(app.workspaces()[0].name(), "W1");
+        assert_eq!(app.workspaces()[1].name(), "W2");
+        assert_eq!(app.workspaces()[2].name(), "W3");
+    }
+
+    #[test]
+    fn move_selected_workspace_down_swaps_workspaces_and_selection() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+
+        assert!(app.move_selected_workspace_down());
+        assert_eq!(app.selected_index(), 1);
+        assert_eq!(app.workspaces()[0].name(), "W2");
+        assert_eq!(app.workspaces()[1].name(), "W1");
+        assert_eq!(app.workspaces()[2].name(), "W3");
+    }
+
+    #[test]
+    fn move_selected_workspace_down_is_noop_at_bottom() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.selected_index = app.workspaces().len() - 1;
+
+        assert!(!app.move_selected_workspace_down());
+        assert_eq!(app.selected_index(), 2);
+        assert_eq!(app.workspaces()[0].name(), "W1");
+        assert_eq!(app.workspaces()[1].name(), "W2");
+        assert_eq!(app.workspaces()[2].name(), "W3");
     }
 
     #[test]

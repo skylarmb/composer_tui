@@ -186,6 +186,12 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAct
     }
 
     match key.code {
+        KeyCode::Char('J') if app.focus() == FocusArea::Sidebar => {
+            app.move_selected_workspace_down();
+        }
+        KeyCode::Char('K') if app.focus() == FocusArea::Sidebar => {
+            app.move_selected_workspace_up();
+        }
         KeyCode::Char('t')
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 && app.focus() == FocusArea::Sidebar =>
@@ -631,6 +637,33 @@ mod tests {
 
         handle_key_event(&mut app, key(KeyCode::Char('w'), KeyModifiers::CONTROL));
         assert_eq!(app.selected_workspace().expect("workspace").tab_count(), 1);
+    }
+
+    #[test]
+    fn shift_j_and_shift_k_reorder_workspaces_from_sidebar() {
+        let mut app = test_app();
+        assert_eq!(app.selected_workspace().expect("workspace").name(), "W1");
+
+        handle_key_event(&mut app, key(KeyCode::Char('J'), KeyModifiers::SHIFT));
+        assert_eq!(app.selected_index(), 1);
+        assert_eq!(app.workspaces()[0].name(), "W2");
+        assert_eq!(app.workspaces()[1].name(), "W1");
+
+        handle_key_event(&mut app, key(KeyCode::Char('K'), KeyModifiers::SHIFT));
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(app.workspaces()[0].name(), "W1");
+        assert_eq!(app.workspaces()[1].name(), "W2");
+    }
+
+    #[test]
+    fn shift_j_and_shift_k_do_not_reorder_outside_sidebar() {
+        let mut app = test_app();
+        app.focus_right();
+
+        handle_key_event(&mut app, key(KeyCode::Char('J'), KeyModifiers::SHIFT));
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(app.workspaces()[0].name(), "W1");
+        assert_eq!(app.workspaces()[1].name(), "W2");
     }
 
     #[test]
