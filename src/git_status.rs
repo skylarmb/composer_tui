@@ -243,6 +243,59 @@ pub fn read_changes_panel_lines(path: &Path) -> Option<Vec<String>> {
     Some(lines)
 }
 
+/// Build a list of diff lines for the given workspace path.
+///
+/// When `show_branch_diff` is `true` the diff is computed between HEAD and the
+/// working-tree (equivalent to `git diff HEAD`).  When `false` only unstaged
+/// changes are shown (equivalent to `git diff`).
+///
+/// Each returned string is a single patch line — file headers, hunk headers,
+/// context lines, and `+`/`-` lines — ready for display.
+///
+/// Returns `None` only when the path is not inside a git repository.
+pub fn read_diff_lines(path: &Path, show_branch_diff: bool) -> Option<Vec<String>> {
+    let repo = Repository::discover(path).ok()?;
+
+    let diff = if show_branch_diff {
+        let head = repo.head().ok()?;
+        let commit = head.peel_to_commit().ok()?;
+        let tree = commit.tree().ok()?;
+        repo.diff_tree_to_workdir_with_index(Some(&tree), None)
+            .ok()?
+    } else {
+        repo.diff_index_to_workdir(None, None).ok()?
+    };
+
+    let mut lines: Vec<String> = Vec::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        let origin = line.origin();
+        let content = std::str::from_utf8(line.content()).unwrap_or("");
+        // File-header, hunk-header, and binary lines already contain their
+        // full text; context/add/delete lines need the origin char prepended.
+        let text = match origin {
+            'F' | 'H' | 'B' => content
+                .trim_end_matches('\n')
+                .trim_end_matches('\r')
+                .to_string(),
+            _ => {
+                let trimmed = content.trim_end_matches('\n').trim_end_matches('\r');
+                format!("{origin}{trimmed}")
+            }
+        };
+        if !text.is_empty() {
+            lines.push(text);
+        }
+        true
+    })
+    .ok()?;
+
+    if lines.is_empty() {
+        lines.push("Nothing to show — working tree is clean.".to_string());
+    }
+
+    Some(lines)
+}
+
 fn unstaged_line_counts(repo: &Repository) -> Option<(usize, usize)> {
     let mut diff_options = git2::DiffOptions::new();
     diff_options
@@ -318,5 +371,102 @@ mod tests {
         fetcher.set_targets(vec![]);
         let updates = fetcher.drain_updates();
         assert!(updates.is_empty());
+    }
+
+    #[test]
+    fn read_diff_lines_returns_empty_message_on_clean_repo() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let temp = std::env::temp_dir().join(format!(
+            "composer_tui_diff_clean_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create temp dir");
+        init_repo(&temp);
+
+        // Both diff types should report a clean working tree.
+        let unstaged = read_diff_lines(&temp, false).expect("unstaged diff lines");
+        assert_eq!(unstaged, vec!["Nothing to show — working tree is clean."]);
+
+        let branch = read_diff_lines(&temp, true).expect("branch diff lines");
+        assert_eq!(branch, vec!["Nothing to show — working tree is clean."]);
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn read_diff_lines_unstaged_shows_modified_content() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let temp = std::env::temp_dir().join(format!(
+            "composer_tui_diff_unstaged_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create temp dir");
+        init_repo(&temp);
+
+        // Unstaged modification.
+        fs::write(temp.join("README.md"), "changed\n").expect("mutate file");
+
+        let lines = read_diff_lines(&temp, false).expect("diff lines");
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains('+') || joined.contains('-'),
+            "unstaged diff should contain diff lines: {joined}"
+        );
+        assert!(
+            joined.contains("README.md"),
+            "diff should mention the changed file: {joined}"
+        );
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn read_diff_lines_branch_diff_includes_staged_changes() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let temp = std::env::temp_dir().join(format!(
+            "composer_tui_diff_branch_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create temp dir");
+        let repo = init_repo(&temp);
+
+        // Stage a new file — this would be invisible to `git diff` (unstaged)
+        // but visible to `git diff HEAD` (branch diff).
+        fs::write(temp.join("NEW.md"), "new file\n").expect("write new file");
+        let mut index = repo.index().expect("open index");
+        index.add_path(Path::new("NEW.md")).expect("stage new file");
+        index.write().expect("persist index");
+
+        let branch = read_diff_lines(&temp, true).expect("branch diff lines");
+        let joined = branch.join("\n");
+        assert!(
+            joined.contains("NEW.md"),
+            "branch diff should contain the staged new file: {joined}"
+        );
+
+        // Unstaged diff should NOT include the staged-only file.
+        let unstaged = read_diff_lines(&temp, false).expect("unstaged diff lines");
+        let unstaged_joined = unstaged.join("\n");
+        assert!(
+            !unstaged_joined.contains("NEW.md"),
+            "unstaged diff should not include purely staged file: {unstaged_joined}"
+        );
+
+        let _ = fs::remove_dir_all(&temp);
     }
 }
