@@ -205,6 +205,7 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAct
         KeyCode::Char('d') => app.start_delete_workspace(),
         KeyCode::Char('z') => app.toggle_fullscreen(),
         KeyCode::Char('g') => app.show_changes_panel(),
+        KeyCode::Char('D') => app.show_diff_viewer(),
         KeyCode::Char('C') => app.start_commit_message(),
         KeyCode::Char('S') => return Some(EditorAction::OpenSettings),
         KeyCode::Char('R') => app.reload_config(),
@@ -379,6 +380,20 @@ fn rect_contains(rect: ratatui::layout::Rect, col: u16, row: u16) -> bool {
 }
 
 fn handle_modal_key_event(app: &mut App, key: KeyEvent) {
+    // The diff viewer has its own navigation controls.
+    if matches!(app.input_mode(), InputMode::DiffViewer { .. }) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => app.cancel_input(),
+            KeyCode::Char('j') | KeyCode::Down => app.scroll_diff_down(1),
+            KeyCode::Char('k') | KeyCode::Up => app.scroll_diff_up(1),
+            KeyCode::PageDown => app.scroll_diff_down(10),
+            KeyCode::PageUp => app.scroll_diff_up(10),
+            KeyCode::Char('t') => app.toggle_diff_type(),
+            _ => {}
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Esc => app.cancel_input(),
         KeyCode::Enter => app.confirm_input(),
@@ -632,5 +647,49 @@ mod tests {
             0
         );
         assert_eq!(app.focus(), FocusArea::Main);
+    }
+
+    #[test]
+    fn d_key_opens_diff_viewer_or_error_without_worktree() {
+        let mut app = test_app();
+        // Default test workspaces have no worktrees, so we expect an Error modal.
+        handle_key_event(&mut app, key(KeyCode::Char('D'), KeyModifiers::NONE));
+        assert!(
+            matches!(app.input_mode(), InputMode::Error { .. }),
+            "D should attempt to open diff viewer and surface error when no worktree: {:?}",
+            app.input_mode()
+        );
+    }
+
+    #[test]
+    fn diff_viewer_esc_closes_modal() {
+        let mut app = test_app();
+        app.set_diff_viewer(vec!["+added line".to_string()], true);
+        assert!(app.is_modal_active());
+
+        handle_key_event(&mut app, key(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(matches!(app.input_mode(), InputMode::Normal));
+    }
+
+    #[test]
+    fn diff_viewer_jk_scroll() {
+        let mut app = test_app();
+        let lines: Vec<String> = (0..20).map(|i| format!("+line {i}")).collect();
+        app.set_diff_viewer(lines, false);
+        app.scroll_diff_down(5); // start at 5
+
+        handle_key_event(&mut app, key(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(
+            matches!(&app.input_mode(), InputMode::DiffViewer { scroll: 6, .. }),
+            "j should scroll down: {:?}",
+            app.input_mode()
+        );
+
+        handle_key_event(&mut app, key(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert!(
+            matches!(&app.input_mode(), InputMode::DiffViewer { scroll: 5, .. }),
+            "k should scroll up: {:?}",
+            app.input_mode()
+        );
     }
 }

@@ -56,6 +56,25 @@ fn hint_line(app: &App) -> Line<'static> {
             key_span("C"),
             desc_span(" commit & push"),
         ]),
+        InputMode::DiffViewer {
+            show_branch_diff, ..
+        } => {
+            let mode_label = if *show_branch_diff {
+                "branch"
+            } else {
+                "unstaged"
+            };
+            Line::from(vec![
+                key_span("j/k"),
+                desc_span(" scroll  "),
+                key_span("PgDn/PgUp"),
+                desc_span(" page  "),
+                key_span("t"),
+                desc_span(&format!(" toggle ({mode_label})  ")),
+                key_span("Esc"),
+                desc_span(" close"),
+            ])
+        }
         InputMode::Error { .. } => Line::from(vec![
             key_span("Enter"),
             desc_span(" dismiss  "),
@@ -112,6 +131,8 @@ fn sidebar_hints() -> Line<'static> {
         desc_span(" delete  "),
         key_span("g"),
         desc_span(" changes  "),
+        key_span("D"),
+        desc_span(" diff  "),
         key_span("C"),
         desc_span(" commit  "),
         key_span("z"),
@@ -199,5 +220,27 @@ mod tests {
         assert!(text.contains("reload"));
         assert!(text.contains("Ctrl+T"));
         assert!(text.contains("Ctrl+W"));
+    }
+
+    #[test]
+    fn diff_viewer_hints_show_mode_label() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+
+        app.set_diff_viewer(vec![], true);
+        let text: String = hint_line(&app)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(text.contains("branch"), "branch mode label: {text}");
+        assert!(text.contains("toggle"), "toggle hint: {text}");
+
+        app.set_diff_viewer(vec![], false);
+        let text2: String = hint_line(&app)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(text2.contains("unstaged"), "unstaged mode label: {text2}");
     }
 }

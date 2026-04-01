@@ -10,7 +10,7 @@ use crate::state::WorkspaceState;
 use crate::{
     config::Config,
     gh_status::{GhStatusFetcher, GhWorkspaceTarget},
-    git_status::{read_changes_panel_lines, GitStatusFetcher, GitWorkspaceTarget},
+    git_status::{read_changes_panel_lines, read_diff_lines, GitStatusFetcher, GitWorkspaceTarget},
     state::AppState,
     workspace::{Workspace, WorkspaceTerminalState},
     worktree::WorktreeManager,
@@ -156,6 +156,7 @@ impl App {
             }
             InputMode::CommitMessage { message } => self.execute_commit(message),
             InputMode::ChangesPanel { .. } => self.input_mode = InputMode::Normal,
+            InputMode::DiffViewer { .. } => self.input_mode = InputMode::Normal,
             InputMode::Error { .. } => self.input_mode = InputMode::Normal,
         }
     }
@@ -622,6 +623,87 @@ impl App {
         self.input_mode = InputMode::ChangesPanel { lines };
     }
 
+    /// Open the diff viewer modal for the selected workspace.
+    ///
+    /// Defaults to showing the branch diff (`git diff HEAD`).
+    pub fn show_diff_viewer(&mut self) {
+        let path = match self.selected_workspace().and_then(|ws| ws.worktree_path()) {
+            Some(p) => p.to_path_buf(),
+            None => {
+                self.show_error("no git worktree for selected workspace");
+                return;
+            }
+        };
+
+        let show_branch_diff = true;
+        let lines = read_diff_lines(&path, show_branch_diff)
+            .unwrap_or_else(|| vec!["Not a git repository.".to_string()]);
+
+        self.input_mode = InputMode::DiffViewer {
+            lines,
+            scroll: 0,
+            show_branch_diff,
+        };
+    }
+
+    /// Scroll the diff viewer up by `step` lines.
+    pub fn scroll_diff_up(&mut self, step: usize) {
+        if let InputMode::DiffViewer { scroll, .. } = &mut self.input_mode {
+            *scroll = scroll.saturating_sub(step);
+        }
+    }
+
+    /// Scroll the diff viewer down by `step` lines.
+    pub fn scroll_diff_down(&mut self, step: usize) {
+        if let InputMode::DiffViewer { lines, scroll, .. } = &mut self.input_mode {
+            let max = lines.len().saturating_sub(1);
+            *scroll = (*scroll + step).min(max);
+        }
+    }
+
+    /// Toggle the diff viewer between branch diff and unstaged diff.
+    ///
+    /// Re-reads the diff from disk so the view is always current.
+    pub fn toggle_diff_type(&mut self) {
+        let (new_show_branch_diff, path) = match &self.input_mode {
+            InputMode::DiffViewer {
+                show_branch_diff, ..
+            } => {
+                let new_val = !*show_branch_diff;
+                let path = self
+                    .selected_workspace()
+                    .and_then(|ws| ws.worktree_path())
+                    .map(|p| p.to_path_buf());
+                (new_val, path)
+            }
+            _ => return,
+        };
+
+        let Some(path) = path else { return };
+
+        let lines = read_diff_lines(&path, new_show_branch_diff)
+            .unwrap_or_else(|| vec!["Not a git repository.".to_string()]);
+
+        self.input_mode = InputMode::DiffViewer {
+            lines,
+            scroll: 0,
+            show_branch_diff: new_show_branch_diff,
+        };
+    }
+
+    /// Set the diff viewer to display the provided lines directly.
+    ///
+    /// Useful for tests and any caller that already has diff content to show.
+    /// Production code normally calls [`Self::show_diff_viewer`] to compute the diff
+    /// from the selected workspace's worktree path.
+    pub fn set_diff_viewer(&mut self, lines: Vec<String>, show_branch_diff: bool) {
+        self.input_mode = InputMode::DiffViewer {
+            lines,
+            scroll: 0,
+            show_branch_diff,
+        };
+    }
+
     fn selected_workspace_mut(&mut self) -> Option<&mut Workspace> {
         self.workspaces.get_mut(self.selected_index)
     }
@@ -665,6 +747,13 @@ pub enum InputMode {
     /// Display-only panel showing the current git working-tree changes.
     ChangesPanel {
         lines: Vec<String>,
+    },
+    /// Scrollable diff viewer showing branch or unstaged changes.
+    DiffViewer {
+        lines: Vec<String>,
+        scroll: usize,
+        /// `true` = branch diff (git diff HEAD), `false` = unstaged diff (git diff).
+        show_branch_diff: bool,
     },
     Error {
         message: String,
@@ -906,6 +995,80 @@ mod tests {
         app.start_close_selected_workspace_tab();
         assert!(matches!(app.input_mode(), InputMode::ConfirmCloseTab));
 
+        app.cancel_input();
+        assert!(matches!(app.input_mode(), InputMode::Normal));
+    }
+
+    #[test]
+    fn show_diff_viewer_requires_worktree() {
+        // A workspace without a worktree should show an error.
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.show_diff_viewer();
+        assert!(
+            matches!(app.input_mode(), InputMode::Error { .. }),
+            "expected Error mode when no worktree is present: {:?}",
+            app.input_mode()
+        );
+    }
+
+    #[test]
+    fn scroll_diff_up_and_down_clamp_within_bounds() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        // Inject a DiffViewer mode with 5 lines starting at scroll = 2.
+        let lines: Vec<String> = (0..5).map(|i| format!("line {i}")).collect();
+        app.set_diff_viewer(lines, true);
+        app.scroll_diff_down(2); // start at 2
+
+        // Scroll up from 2 → 1 → 0 → 0 (clamps at 0).
+        app.scroll_diff_up(1);
+        assert!(matches!(
+            &app.input_mode,
+            InputMode::DiffViewer { scroll: 1, .. }
+        ));
+        app.scroll_diff_up(1);
+        assert!(matches!(
+            &app.input_mode,
+            InputMode::DiffViewer { scroll: 0, .. }
+        ));
+        app.scroll_diff_up(1); // already at 0
+        assert!(matches!(
+            &app.input_mode,
+            InputMode::DiffViewer { scroll: 0, .. }
+        ));
+
+        // Scroll down: max is lines.len() - 1 = 4.
+        app.scroll_diff_down(3);
+        assert!(matches!(
+            &app.input_mode,
+            InputMode::DiffViewer { scroll: 3, .. }
+        ));
+        app.scroll_diff_down(10); // clamps at 4
+        assert!(matches!(
+            &app.input_mode,
+            InputMode::DiffViewer { scroll: 4, .. }
+        ));
+    }
+
+    #[test]
+    fn toggle_diff_type_is_noop_outside_diff_viewer() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(matches!(app.input_mode(), InputMode::Normal));
+        app.toggle_diff_type(); // should not panic or change mode
+        assert!(matches!(app.input_mode(), InputMode::Normal));
+    }
+
+    #[test]
+    fn confirm_input_closes_diff_viewer() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.set_diff_viewer(vec!["line".to_string()], false);
+        app.confirm_input();
+        assert!(matches!(app.input_mode(), InputMode::Normal));
+    }
+
+    #[test]
+    fn cancel_input_closes_diff_viewer() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.set_diff_viewer(vec!["line".to_string()], true);
         app.cancel_input();
         assert!(matches!(app.input_mode(), InputMode::Normal));
     }
