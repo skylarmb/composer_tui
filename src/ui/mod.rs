@@ -9,6 +9,8 @@ mod status_bar;
 
 use ratatui::{
     layout::{Constraint, Layout, Rect},
+    style::{Color, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
@@ -199,6 +201,35 @@ fn render_modal(frame: &mut Frame, app: &App) {
                 area,
             );
         }
+        InputMode::DiffViewer {
+            lines,
+            scroll,
+            show_branch_diff,
+        } => {
+            let diff_kind = if *show_branch_diff {
+                "branch (git diff HEAD)"
+            } else {
+                "unstaged (git diff)"
+            };
+            let title = format!("Diff — {diff_kind}");
+            let area = centered_rect(92, 90, frame.area());
+            frame.render_widget(Clear, area);
+
+            // Height available for lines (subtract 2 for the border).
+            let visible = area.height.saturating_sub(2) as usize;
+            let styled_lines: Vec<Line> = lines
+                .iter()
+                .skip(*scroll)
+                .take(visible)
+                .map(|l| diff_line_to_styled(l))
+                .collect();
+
+            frame.render_widget(
+                Paragraph::new(styled_lines)
+                    .block(Block::default().title(title).borders(Borders::ALL)),
+                area,
+            );
+        }
         mode => {
             let (title, body) = match mode {
                 InputMode::CreateWorkspace { name } => (
@@ -224,7 +255,9 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     "Error",
                     format!("{message}\n\nEnter or Esc to dismiss"),
                 ),
-                InputMode::Normal | InputMode::ChangesPanel { .. } => return,
+                InputMode::Normal | InputMode::ChangesPanel { .. } | InputMode::DiffViewer { .. } => {
+                    return
+                }
             };
 
             let area = centered_rect(60, 40, frame.area());
@@ -235,6 +268,33 @@ fn render_modal(frame: &mut Frame, app: &App) {
             );
         }
     }
+}
+
+/// Apply syntax-highlighting to a single diff patch line.
+///
+/// Colours follow the standard diff convention:
+/// - Added lines (`+`)  → green
+/// - Removed lines (`-`) → red
+/// - Hunk headers (`@@`) → cyan
+/// - File headers (`diff `, `index `, `---`, `+++`) → yellow
+/// - Context lines → default foreground
+fn diff_line_to_styled(line: &str) -> Line<'static> {
+    let style = if line.starts_with("+++")
+        || line.starts_with("---")
+        || line.starts_with("diff ")
+        || line.starts_with("index ")
+    {
+        Style::default().fg(Color::Yellow)
+    } else if line.starts_with('+') {
+        Style::default().fg(Color::Green)
+    } else if line.starts_with('-') {
+        Style::default().fg(Color::Red)
+    } else if line.starts_with("@@") {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    };
+    Line::from(Span::styled(line.to_string(), style))
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
