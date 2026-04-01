@@ -139,6 +139,8 @@ fn sidebar_hints() -> Line<'static> {
         desc_span(" commit  "),
         key_span("z"),
         desc_span(" fullscreen  "),
+        key_span("Z"),
+        desc_span(" zen  "),
         key_span("S"),
         desc_span(" settings  "),
         key_span("R"),
