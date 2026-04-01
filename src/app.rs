@@ -30,6 +30,8 @@ pub struct App {
     worktree_manager: Option<WorktreeManager>,
     /// Whether the main panel is fullscreen (sidebar hidden).
     fullscreen: bool,
+    /// Whether zen mode is active (all chrome hidden, only terminal shown).
+    zen_mode: bool,
     /// Persistent user configuration.
     config: Config,
     /// Background poller for git dirty/clean status.
@@ -74,6 +76,7 @@ impl App {
             input_mode: InputMode::Normal,
             worktree_manager,
             fullscreen: false,
+            zen_mode: false,
             config,
             git_status_fetcher: GitStatusFetcher::new(GIT_STATUS_POLL_INTERVAL),
             gh_status_fetcher: GhStatusFetcher::new(GH_STATUS_POLL_INTERVAL),
@@ -267,6 +270,21 @@ impl App {
     /// Exit fullscreen mode (no-op if not fullscreen).
     pub fn exit_fullscreen(&mut self) {
         self.fullscreen = false;
+    }
+
+    /// Whether zen mode is active (all chrome hidden, only the terminal shown).
+    pub fn is_zen_mode(&self) -> bool {
+        self.zen_mode
+    }
+
+    /// Toggle zen mode on/off.
+    pub fn toggle_zen_mode(&mut self) {
+        self.zen_mode = !self.zen_mode;
+    }
+
+    /// Exit zen mode (no-op if not in zen mode).
+    pub fn exit_zen_mode(&mut self) {
+        self.zen_mode = false;
     }
 
     /// All configured workspaces.
@@ -923,6 +941,32 @@ mod tests {
         let mut app = App::from_state_with_manager(AppState::default(), None);
         app.exit_fullscreen(); // already false
         assert!(!app.is_fullscreen());
+    }
+
+    #[test]
+    fn toggle_zen_mode_flips_state() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        assert!(!app.is_zen_mode());
+        app.toggle_zen_mode();
+        assert!(app.is_zen_mode());
+        app.toggle_zen_mode();
+        assert!(!app.is_zen_mode());
+    }
+
+    #[test]
+    fn exit_zen_mode_clears_flag() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.toggle_zen_mode();
+        assert!(app.is_zen_mode());
+        app.exit_zen_mode();
+        assert!(!app.is_zen_mode());
+    }
+
+    #[test]
+    fn exit_zen_mode_is_idempotent() {
+        let mut app = App::from_state_with_manager(AppState::default(), None);
+        app.exit_zen_mode(); // already false
+        assert!(!app.is_zen_mode());
     }
 
     #[test]

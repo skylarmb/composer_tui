@@ -50,6 +50,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
             size.height,
             app.is_fullscreen(),
             sidebar_width,
+            app.is_zen_mode(),
         );
         app.tick(cols, rows);
 
@@ -210,6 +211,7 @@ fn handle_navigation_key_event(app: &mut App, key: KeyEvent) -> Option<EditorAct
         KeyCode::Char('n') => app.start_create_workspace(),
         KeyCode::Char('d') => app.start_delete_workspace(),
         KeyCode::Char('z') => app.toggle_fullscreen(),
+        KeyCode::Char('Z') => app.toggle_zen_mode(),
         KeyCode::Char('g') => app.show_changes_panel(),
         KeyCode::Char('C') => app.start_commit_message(),
         KeyCode::Char('S') => return Some(EditorAction::OpenSettings),
@@ -263,6 +265,7 @@ fn handle_main_focus_key_event(app: &mut App, key: KeyEvent) {
         match key.code {
             KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'o') => {
                 app.exit_fullscreen();
+                app.exit_zen_mode();
                 app.focus_left();
                 return;
             }
@@ -419,8 +422,13 @@ fn handle_mouse_event(
         return;
     }
 
-    let (_header_rect, sidebar_rect, main_rect, _status_rect) =
-        ui::layout_rects(width, height, app.is_fullscreen(), sidebar_width);
+    let (_header_rect, sidebar_rect, main_rect, _status_rect) = ui::layout_rects(
+        width,
+        height,
+        app.is_fullscreen(),
+        sidebar_width,
+        app.is_zen_mode(),
+    );
 
     let col = mouse.column;
     let row = mouse.row;
@@ -516,6 +524,31 @@ mod tests {
 
         handle_key_event(&mut app, key(KeyCode::Char('o'), KeyModifiers::CONTROL));
         assert!(!app.is_fullscreen());
+        assert_eq!(app.focus(), FocusArea::Sidebar);
+    }
+
+    #[test]
+    fn shift_z_toggles_zen_mode_from_sidebar() {
+        let mut app = test_app();
+        assert!(!app.is_zen_mode());
+
+        handle_key_event(&mut app, key(KeyCode::Char('Z'), KeyModifiers::SHIFT));
+        assert!(app.is_zen_mode());
+
+        handle_key_event(&mut app, key(KeyCode::Char('Z'), KeyModifiers::SHIFT));
+        assert!(!app.is_zen_mode());
+    }
+
+    #[test]
+    fn ctrl_o_exits_zen_mode_and_focuses_sidebar() {
+        let mut app = test_app();
+        app.toggle_zen_mode();
+        app.focus_right(); // focus main
+        assert!(app.is_zen_mode());
+        assert_eq!(app.focus(), FocusArea::Main);
+
+        handle_key_event(&mut app, key(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert!(!app.is_zen_mode());
         assert_eq!(app.focus(), FocusArea::Sidebar);
     }
 
@@ -649,7 +682,7 @@ mod tests {
             2
         );
 
-        let (_header, _, main, _) = ui::layout_rects(120, 24, false, 20);
+        let (_header, _, main, _) = ui::layout_rects(120, 24, false, 20, false);
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: main.x + 2,

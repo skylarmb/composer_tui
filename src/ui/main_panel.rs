@@ -23,22 +23,28 @@ pub fn render(
     app: &App,
     focused: bool,
     focused_border_color: TuiColor,
+    zen_mode: bool,
 ) {
-    let title = main_title_line(app);
     let lines = if let Some(workspace) = app.selected_workspace() {
         workspace_lines(workspace, focused)
     } else {
         vec![Line::from("No workspace selected")]
     };
 
-    let content = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style(focused, focused_border_color)),
-    );
-
-    frame.render_widget(content, area);
+    if zen_mode {
+        // In zen mode, render without any chrome (borders, title, tab bar).
+        let content = Paragraph::new(lines);
+        frame.render_widget(content, area);
+    } else {
+        let title = main_title_line(app);
+        let content = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(border_style(focused, focused_border_color)),
+        );
+        frame.render_widget(content, area);
+    }
 }
 
 /// Resolve a tab index from a click on the main-panel top border.
