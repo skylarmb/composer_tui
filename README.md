@@ -1,3 +1,6 @@
+> [!WARNING]
+> I built this before [herdr.dev](https://herdr.dev/) existed. Now that Herdr exists, it is almost the perfect tool for my workflows. I have chosen to customize Herdr instead of investing in this project
+
 # composer_tui
 
 A terminal-based tool for orchestrating multiple parallel AI coding agents, using git worktrees to isolate each agent's work.
